@@ -10,9 +10,9 @@ Defines the local, standalone distributed cluster required to run Urbanix using 
 - **Spark Master:** Cluster manager for PySpark/Scala jobs.
 - **Spark Worker:** Executes distributed streaming and graph tasks.
 
-## Future Port Bindings
+## Port Bindings
 - Kafka: `localhost:9092`
-- Spark UI: `localhost:8080`
+- Spark UI: `localhost:8081` (Project's intended default endpoint is `localhost:8080`. Actual endpoint on this machine is `localhost:8081` because host port 8080 is already occupied. Internal Spark Master UI port remains `8080`.)
 - Spark Master: `spark://localhost:7077`
 
-**Current Status:** Planned for Day 1. Docker Compose and Kafka topics have not been created yet.
+**Current Status:** Day 1 infrastructure created. Docker Compose and Kafka topics are active.
