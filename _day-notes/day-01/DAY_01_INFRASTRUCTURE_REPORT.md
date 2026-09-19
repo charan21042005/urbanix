@@ -456,26 +456,48 @@ We strictly validated the deployment:
 
 ## 🎓 28. Viva / Interview Questions
 
-1. **What is Docker?** A platform to build and run isolated applications in containers.
-2. **Image vs Container?** Image is a blueprint; container is a running instance.
-3. **Why Docker Compose?** It manages complex multi-container architectures declaratively in YAML.
-4. **What is a Kafka broker?** A server that receives, stores, and serves message streams.
-5. **What is a Kafka topic?** A named category where specific types of messages (e.g., traffic data) are stored.
-6. **What is a partition?** A subset of a topic's data, allowing horizontal scaling and parallel processing.
-7. **Why one partition on Day 1?** We are running a single-broker local development setup; parallelism isn't required yet.
-8. **What is replication factor?** The number of copies of data stored across brokers for fault tolerance.
-9. **Why replication factor 1?** We only have one broker, so data cannot be replicated elsewhere.
-10. **What does Zookeeper do here?** It manages the Kafka broker's state and leader election.
-11. **What is a Kafka advertised listener?** The routing metadata Kafka hands to clients so they know how to connect.
-12. **Why `kafka:29092`?** It's the internal Docker DNS name and port for containers communicating with Kafka.
-13. **Why `localhost:9092`?** It's the external mapping for Windows host applications to hit the container.
-14. **What is a Spark master?** The node that coordinates resources across the Spark cluster.
-15. **What is a Spark worker?** The node that executes processing tasks assigned by the master.
-16. **What is a Spark driver?** The process running the user's main application logic.
-17. **Why are master and driver different?** The master manages hardware/cluster resources; the driver manages application execution.
-18. **Why is Spark UI on 8081 on this machine?** A background Windows Java service was already occupying port 8080.
-19. **What does `8081:8080` mean?** Map host port 8081 to internal container port 8080.
-20. **What exactly was accomplished on Day 1?** Established the complete foundational infrastructure (Kafka, Spark) required to process Urbanix data.
+*(These answers are crafted to be concise but highly impressive for a capstone viva or technical interview).*
+
+1. **What is Docker?** 
+   *Answer:* Docker is an OS-level virtualization platform that allows us to package applications and their dependencies into isolated, lightweight, and portable units called containers. It ensures the "it works on my machine" problem is eliminated.
+2. **What is the difference between a Docker Image and a Container?** 
+   *Answer:* An image is an immutable, read-only template (like a class in OOP), whereas a container is a live, running instance of that image (like an instantiated object). 
+3. **Why did you use Docker Compose for Urbanix?** 
+   *Answer:* Urbanix is a distributed system requiring multiple interacting services (Kafka, Zookeeper, Spark Master, Spark Worker). Docker Compose allows us to define this entire multi-container architecture declaratively in a single YAML file, ensuring deterministic startup ordering, shared networking, and perfect reproducibility.
+4. **What is a Kafka Broker?** 
+   *Answer:* A broker is the core server node in a Kafka cluster. It receives incoming message streams from producers, persists them reliably to disk, and serves them to consumers upon request.
+5. **What is a Kafka Topic?** 
+   *Answer:* A topic is a logical channel or category where records are published. In Urbanix, we separate concerns by using distinct topics like `traffic-topic` and `weather-topic` so consumers only subscribe to the specific data schema they need.
+6. **What is a Partition in Kafka?** 
+   *Answer:* A partition is a physical subdivision of a topic. Partitions allow Kafka to scale horizontally; they enable multiple consumers within a consumer group to read from the same topic simultaneously in parallel.
+7. **Why did you configure only one partition for your Day 1 topics?** 
+   *Answer:* Since we are currently running a localized, single-broker development environment, allocating multiple partitions adds overhead without providing parallel processing benefits. We will scale partition counts when we deploy to a multi-node production cluster.
+8. **What is a Replication Factor?** 
+   *Answer:* It defines how many copies of a partition's data exist across different brokers. It is the primary mechanism Kafka uses to guarantee high availability and fault tolerance.
+9. **Why is your Replication Factor set to 1?** 
+   *Answer:* Because our Day 1 cluster consists of exactly one Kafka broker. You cannot replicate data across multiple nodes if only one node exists. 
+10. **What role does Zookeeper play in your Kafka architecture?** 
+    *Answer:* Zookeeper acts as the centralized metadata store and cluster coordinator. It tracks which brokers are alive, manages leader election for partitions, and stores topic configurations. *(Note: While newer Kafka versions use KRaft, we chose a stable Zookeeper-backed Confluent image for Day 1 reliability).*
+11. **Explain the concept of an Advertised Listener in Kafka.** 
+    *Answer:* Kafka networking is complex. The `ADVERTISED_LISTENERS` property is the crucial metadata Kafka hands back to a client upon initial connection. It explicitly tells the client exactly which IP address and port it must use to send actual data.
+12. **Why does Urbanix use `kafka:29092`?** 
+    *Answer:* This is the internal Docker network routing address. When our Spark containers (which live inside the Docker network) need to talk to Kafka, they resolve the DNS name `kafka` directly to the container's internal IP.
+13. **Why does Urbanix also use `localhost:9092`?** 
+    *Answer:* This is the external port mapping. When our Python IoT producers (running on the Windows host, outside Docker) need to talk to Kafka, they must use the host's loopback interface (`localhost`), which Docker transparently forwards to the container.
+14. **What is the Spark Master?** 
+    *Answer:* The Master is the cluster manager in Spark's standalone mode. It is responsible for negotiating and allocating physical resources (CPU, RAM) across the cluster, but it does *not* execute the application code itself.
+15. **What is a Spark Worker?** 
+    *Answer:* A Worker is a node that provides computational resources. It listens to the Master, spawns executor processes, and actually runs the distributed data processing tasks (like our MLlib or GraphX workloads).
+16. **What is a Spark Driver?** 
+    *Answer:* The Driver is the control process that runs the user's `main()` function. It translates the application code into a logical DAG (Directed Acyclic Graph) of tasks, and works with the Master to schedule those tasks onto the Workers.
+17. **Summarize the difference between the Master and the Driver.** 
+    *Answer:* The Master manages the *hardware/infrastructure* (nodes, RAM, CPU cores). The Driver manages the *application software* (the actual Spark code, jobs, and tasks).
+18. **Why is the Spark Master UI exposed on port 8081 on this specific machine?** 
+    *Answer:* The default Spark UI port is 8080. However, during environment validation, we discovered a persistent Windows Java service (PID 7700) already occupying port 8080. To avoid killing a potentially critical OS service, we applied a safe infrastructure workaround by mapping host port 8081 to container port 8080.
+19. **What does the port mapping `"8081:8080"` practically mean?** 
+    *Answer:* It is an instruction to the Docker daemon: "Take traffic arriving at port 8081 on the physical Windows host network, and forward it exclusively to port 8080 inside the isolated container network."
+20. **If asked to summarize Day 1, what exactly was accomplished?** 
+    *Answer:* We successfully orchestrated a localized, distributed messaging and processing foundation. We built an isolated Docker network, spun up Zookeeper and Kafka, configured complex internal/external network bindings, provisioned a standalone Spark Master/Worker cluster, and verified topic creation—all while preserving a pristine Git monorepo history without impacting the host machine's legacy dependencies.
 
 ---
 
