@@ -28,7 +28,21 @@ Urbanix processes data through a structured pipeline:
 4. **Graph Routing:** Predictions are converted to congestion-derived road weights, mapped onto a city grid, and processed by Scala Spark GraphX to find optimal routes.
 5. **Visualization:** A geospatial dashboard visualizes current and predicted states.
 
-<!-- DIAGRAM_PLACEHOLDER -->
+### 🔄 Data Flow Architecture
+```mermaid
+flowchart TD
+    A[Traffic / AQI / Weather Data] --> B[Python Sensor Producers]
+    B --> C[Apache Kafka]
+    C --> D[traffic-topic / aqi-topic / weather-topic]
+    D --> E[Spark Structured Streaming + Spark SQL]
+    E --> F[Windowed Features + Watermarking]
+    F --> G[Spark MLlib Forecasting]
+    G --> H[Predicted Speed / Predicted PM2.5]
+    H --> I[Congestion-derived Road Weights]
+    I --> J[Scala Spark GraphX]
+    J --> K[Congestion-aware Route]
+    K --> L[Geospatial Dashboard]
+```
 
 ### 📦 The Six Core Modules
 | Module | Purpose | Technology | Status |
