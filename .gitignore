@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+env/
+.env
+*.log
+
+# Spark / Scala / Java
+target/
+*.class
+*.jar
+.bsp/
+.metals/
+.idea/
+.vscode/
+
+# Jupyter
+.ipynb_checkpoints
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Data & Output
+data/*.csv
+data/*.json
+data/*.parquet
+!data/.gitkeep
+
+# Docker
+.docker/
