@@ -501,19 +501,81 @@ We strictly validated the deployment:
 
 ---
 
-## 📌 29. Quick Command Cheat Sheet
+## 📌 29. Exhaustive Day 1 Command & Endpoint Reference
 
-**Docker / Compose**
+*(This section documents every single command used end-to-end during Day 1, what it did, and all resulting local endpoints. You can use this as a step-by-step reproduction guide).*
+
+### 🖥️ A. Environment Verification
+Before building, we verified the host machine possessed the required dependencies:
 ```cmd
+docker --version         # Verifies Docker Engine is installed and active
+docker compose version   # Verifies Docker Compose orchestrator is available
+python --version         # Verifies Python is installed for future producers
+java -version            # Checks the active Java version (found Java 8 initially)
+javac -version           # Checks the active Java compiler version
+git --version            # Verifies version control is available
+```
+
+### ☕ B. Java Environment Switching
+To ensure Spark/Scala compatibility without modifying the system-wide global variables, we isolated the session to use JDK 25:
+```cmd
+# Sets the JAVA_HOME variable for the current terminal session only
+set JAVA_HOME=C:\Program Files\Java\jdk-25.0.2
+
+# Prepends the new Java bin directory to the PATH, overriding the default Java 8
+set PATH=%JAVA_HOME%\bin;%PATH%
+```
+
+### 🐳 C. Docker Infrastructure Orchestration
+We navigated to the infrastructure directory and started the cluster:
+```cmd
+cd infra
+
+# Validates the docker-compose.yml syntax. If it returns silently, the YAML is perfectly valid.
 docker compose config
+
+# Starts all services defined in the YAML file in detached (-d) background mode.
 docker compose up -d
+
+# Lists all running containers. We verified exactly 4 containers were UP.
 docker ps
 ```
-**Kafka Verification**
+
+### 📨 D. Kafka Topic Provisioning
+To prepare Kafka to receive data, we executed commands *inside* the running Kafka container using `docker exec`:
 ```cmd
+# Creates the traffic data topic with 1 partition and replication factor 1
 docker exec kafka kafka-topics --create --topic traffic-topic --bootstrap-server kafka:29092 --partitions 1 --replication-factor 1
+
+# Creates the air quality index data topic
+docker exec kafka kafka-topics --create --topic aqi-topic --bootstrap-server kafka:29092 --partitions 1 --replication-factor 1
+
+# Creates the weather data topic
+docker exec kafka kafka-topics --create --topic weather-topic --bootstrap-server kafka:29092 --partitions 1 --replication-factor 1
+
+# Describes all topics in the cluster to verify they were created successfully with the correct configurations
 docker exec kafka kafka-topics --describe --bootstrap-server kafka:29092
 ```
+
+### 🛑 E. Graceful Shutdown
+To cleanly tear down the cluster and preserve memory without destroying data:
+```cmd
+# Stops and removes all containers and networks defined in the docker-compose file
+docker compose down
+```
+
+### 🌐 F. Day 1 Active Endpoints
+Once `docker compose up -d` is executed, the following endpoints become available on your local Windows machine:
+
+1. **Kafka Broker (External Client Access):** 
+   - `localhost:9092`
+   - *Use case:* Python producers on your Windows machine will send data to this port.
+2. **Spark Master UI:** 
+   - `http://localhost:8081`
+   - *Use case:* Open this in your web browser to monitor cluster health, memory usage, and registered workers.
+3. **Spark Master RPC (Remote Procedure Call):** 
+   - `spark://localhost:7077`
+   - *Use case:* Local Spark Driver applications submit jobs to this URL.
 
 ---
 
