@@ -34,6 +34,7 @@ Urbanix follows an event-driven pipeline in which simulated/replayed traffic, ai
 **Target end-to-end architecture:**
 
 ```mermaid
+%%{init: {'theme': 'default', 'themeVariables': { 'primaryTextColor': '#000000', 'clusterTextColor': '#000000', 'clusterBkg': '#f4f4f4', 'clusterBorder': '#888888'}}}%%
 flowchart TD
     %% 1. DATA SOURCES
     subgraph Sources [LAYER 1: SENSOR / DATA SOURCES]
@@ -125,8 +126,8 @@ flowchart TD
     Reroute --> UI_Route
 
     %% Styling
-    classDef default fill:#f9f9f9,stroke:#333,stroke-width:1px;
-    classDef topic fill:#e1f5fe,stroke:#03a9f4,stroke-width:2px;
+    classDef default fill:#f9f9f9,color:#000000,stroke:#333333,stroke-width:1px;
+    classDef topic fill:#e1f5fe,color:#000000,stroke:#03a9f4,stroke-width:2px;
     class T_Topic,A_Topic,W_Topic topic;
 ```
 
