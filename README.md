@@ -127,8 +127,23 @@ flowchart TD
 
     %% Styling
     classDef default fill:#f9f9f9,color:#000000,stroke:#333333,stroke-width:1px;
-    classDef topic fill:#e1f5fe,color:#000000,stroke:#03a9f4,stroke-width:2px;
+    classDef source fill:#fff3e0,color:#000000,stroke:#ff9800,stroke-width:2px;
+    classDef producer fill:#e8f5e9,color:#000000,stroke:#4caf50,stroke-width:2px;
+    classDef topic fill:#e3f2fd,color:#000000,stroke:#2196f3,stroke-width:2px;
+    classDef spark fill:#f3e5f5,color:#000000,stroke:#9c27b0,stroke-width:2px;
+    classDef model fill:#ffebee,color:#000000,stroke:#f44336,stroke-width:2px;
+    classDef risk fill:#fff8e1,color:#000000,stroke:#ffc107,stroke-width:2px;
+    classDef graph fill:#e0f2f1,color:#000000,stroke:#009688,stroke-width:2px;
+    classDef dash fill:#e8eaf6,color:#000000,stroke:#3f51b5,stroke-width:2px;
+
+    class T_Src,A_Src,W_Src source;
+    class T_Prod,A_Prod,W_Prod producer;
     class T_Topic,A_Topic,W_Topic topic;
+    class SS,SQL,WM,TW,FE spark;
+    class LR,DTR model;
+    class Preds,Transform,Weights risk;
+    class Grid,Path,Reroute graph;
+    class UI_Current,UI_Pred,UI_Route dash;
 ```
 
 **Core Prediction to Routing Flow:**
