@@ -133,7 +133,7 @@ flowchart TD
     classDef spark fill:#f3e5f5,color:#000000,stroke:#9c27b0,stroke-width:2px;
     classDef model fill:#ffebee,color:#000000,stroke:#f44336,stroke-width:2px;
     classDef risk fill:#fff8e1,color:#000000,stroke:#ffc107,stroke-width:2px;
-    classDef graph fill:#e0f2f1,color:#000000,stroke:#009688,stroke-width:2px;
+    classDef routing fill:#e0f2f1,color:#000000,stroke:#009688,stroke-width:2px;
     classDef dash fill:#e8eaf6,color:#000000,stroke:#3f51b5,stroke-width:2px;
 
     class T_Src,A_Src,W_Src source;
@@ -142,7 +142,7 @@ flowchart TD
     class SS,SQL,WM,TW,FE spark;
     class LR,DTR model;
     class Preds,Transform,Weights risk;
-    class Grid,Path,Reroute graph;
+    class Grid,Path,Reroute routing;
     class UI_Current,UI_Pred,UI_Route dash;
 ```
 
