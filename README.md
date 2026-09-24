@@ -28,20 +28,119 @@ Urbanix processes data through a structured pipeline:
 4. **Graph Routing:** Predictions are converted to congestion-derived road weights, mapped onto a city grid, and processed by Scala Spark GraphX to find optimal routes.
 5. **Visualization:** A geospatial dashboard visualizes current and predicted states.
 
-### 🔄 Data Flow Architecture
+### 🏗️ End-to-End System Architecture
+Urbanix follows an event-driven pipeline in which simulated/replayed traffic, air-quality, and weather telemetry are ingested into Kafka, processed using Spark Structured Streaming and SQL, transformed into forecasting features, passed through Spark MLlib for short-horizon prediction, converted into congestion-aware road weights, processed by Scala Spark GraphX, and presented through a geospatial dashboard.
+
+**Target end-to-end architecture:**
+
 ```mermaid
 flowchart TD
-    A[Traffic / AQI / Weather Data] --> B[Python Sensor Producers]
-    B --> C[Apache Kafka]
-    C --> D[traffic-topic / aqi-topic / weather-topic]
-    D --> E[Spark Structured Streaming + Spark SQL]
-    E --> F[Windowed Features + Watermarking]
-    F --> G[Spark MLlib Forecasting]
-    G --> H[Predicted Speed / Predicted PM2.5]
-    H --> I[Congestion-derived Road Weights]
-    I --> J[Scala Spark GraphX]
-    J --> K[Congestion-aware Route]
-    K --> L[Geospatial Dashboard]
+    %% 1. DATA SOURCES
+    subgraph Sources [LAYER 1: SENSOR / DATA SOURCES]
+        T_Src[🚗 Traffic Telemetry]
+        A_Src[🌫️ Air Quality Telemetry]
+        W_Src[🌦️ Weather Telemetry]
+    end
+
+    %% 2. SENSOR SIMULATION / INGESTION
+    subgraph Ingestion [LAYER 2: SENSOR SIMULATION]
+        T_Prod[Traffic Producer]
+        A_Prod[AQI Producer]
+        W_Prod[Weather Producer]
+    end
+
+    T_Src --> T_Prod
+    A_Src --> A_Prod
+    W_Src --> W_Prod
+
+    %% 3. KAFKA STREAMING CORE
+    subgraph KafkaCore [LAYER 3: KAFKA STREAMING CORE]
+        direction TB
+        T_Topic[(traffic-topic)]
+        A_Topic[(aqi-topic)]
+        W_Topic[(weather-topic)]
+    end
+
+    T_Prod --> T_Topic
+    A_Prod --> A_Topic
+    W_Prod --> W_Topic
+
+    %% 4. SPARK DISTRIBUTED PROCESSING
+    subgraph SparkProcessing [LAYER 4: SPARK DISTRIBUTED PROCESSING]
+        SS[Spark Structured Streaming]
+        SQL[Spark SQL]
+        WM[Watermarking]
+        TW[Time Windows]
+        FE[Windowed Features]
+
+        SS --> SQL --> WM --> TW --> FE
+    end
+
+    T_Topic --> SS
+    A_Topic --> SS
+    W_Topic --> SS
+
+    %% 5. FORECASTING
+    subgraph MLForecasting [LAYER 5: SPARK MLlib FORECASTING]
+        LR[Linear Regression]
+        DTR[Decision Tree Regressor]
+    end
+
+    FE --> LR
+    FE --> DTR
+
+    %% 6. DECISION / RISK TRANSFORMATION
+    subgraph DecisionRisk [LAYER 6: DECISION & RISK TRANSFORMATION]
+        Preds[Predicted Speed / PM2.5]
+        Transform[Congestion / Risk Transformation]
+        Weights[Congestion-derived Road Weights]
+
+        Preds --> Transform --> Weights
+    end
+
+    LR -.->|5-15 min forecast| Preds
+    DTR -.->|5-15 min forecast| Preds
+
+    %% 7. GRAPH ROUTING
+    subgraph GraphRouting [LAYER 7: SCALA + SPARK GRAPHX]
+        Grid[City Grid / Road Graph]
+        Path[Congestion-weighted Shortest Path]
+        Reroute[Recommended Route]
+
+        Grid --> Path
+        Weights --> Path
+        Path --> Reroute
+    end
+
+    %% 8. DASHBOARD / OUTPUT
+    subgraph Dashboard [LAYER 8: GEOSPATIAL DASHBOARD]
+        direction LR
+        UI_Current[Current Conditions]
+        UI_Pred[Predicted Risk & Congestion]
+        UI_Route[Recommended Route]
+    end
+
+    FE -.-> UI_Current
+    Preds -.-> UI_Pred
+    Reroute --> UI_Route
+
+    %% Styling
+    classDef default fill:#f9f9f9,stroke:#333,stroke-width:1px;
+    classDef topic fill:#e1f5fe,stroke:#03a9f4,stroke-width:2px;
+    class T_Topic,A_Topic,W_Topic topic;
+```
+
+**Core Prediction to Routing Flow:**
+```text
+Predicted Speed / PM2.5
+          ↓
+Congestion-derived Road Weights
+          ↓
+Congestion-weighted Shortest Path
+          ↓
+Recommended Route
+          ↓
+Geospatial Dashboard
 ```
 
 ### 📦 The Six Core Modules
