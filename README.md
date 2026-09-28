@@ -15,10 +15,10 @@
 </div>
 
 ## 📖 Overview
-Urbanix is a distributed, event-driven smart-city analytics platform. Built incrementally as an academic Cluster Computing capstone, it explores the foundations of distributed streaming, machine learning forecasting, and graph processing.
+Urbanix is a smart city project that collects live data from traffic, air quality, and weather sensors. It helps city systems understand what is happening in real time and predict problems such as traffic congestion, pollution risks, and unsafe travel conditions. By using modern data processing tools, the project can handle large amounts of information quickly and turn it into useful decisions for safer and smarter city movement.
 
 ### ❓ Problem Statement
-Modern smart cities generate massive volumes of telemetry (traffic density, air quality, weather conditions). Processing this in real-time to forecast risk and dynamically reroute traffic requires a robust, fault-tolerant distributed architecture. Urbanix serves as a demonstrator for these concepts using a local, standalone cluster.
+In many cities, traffic and air quality can change very quickly. Roads may become crowded, pollution levels may rise, and citizens may not know which route is safer or faster. Most traditional systems struggle to process this information fast enough or combine different types of data in one place. Urbanix was created to show how real-time city data can be collected, analyzed, and used to forecast future problems and guide better travel decisions for people and city planners.
 
 ## 🏗️ High-Level Architecture
 Urbanix processes data through a structured pipeline:
@@ -29,7 +29,7 @@ Urbanix processes data through a structured pipeline:
 5. **Visualization:** A geospatial dashboard visualizes current and predicted states.
 
 ### 🏗️ End-to-End System Architecture
-Urbanix follows an event-driven pipeline in which simulated/replayed traffic, air-quality, and weather telemetry are ingested into Kafka, processed using Spark Structured Streaming and SQL, transformed into forecasting features, passed through Spark MLlib for short-horizon prediction, converted into congestion-aware road weights, processed by Scala Spark GraphX, and presented through a geospatial dashboard.
+Urbanix follows an event-driven pipeline in which simulated/replayed traffic, air-quality, and weather telemetry are ingested into Kafka, processed using Spark Structured Streaming and SQL, transformed into ML-ready features, forecasted, and finally turned into route recommendations for a city road network.
 
 **Target end-to-end architecture:**
 
@@ -226,7 +226,7 @@ Geospatial Dashboard
 - `.github/workflows/` - CI automation (Planned)
 
 ## 🎓 Learning & Engineering Philosophy
-Urbanix is intentionally built incrementally. Each stage focuses on reproducibility, observable milestones, and meaningful Git commits. We emphasize understanding distributed-system fundamentals, fault tolerance, and explainability for academic defense over deploying a production-ready application.
+Urbanix is intentionally built incrementally. Each stage focuses on reproducibility, observable milestones, and meaningful Git commits. We emphasize understanding distributed-system fundamentals, fault tolerance, and ML-driven decision support in a realistic urban data setting.
 
 ### ⚠️ Scope and Limitations
 - Uses simulated/replayed public or historical data.
