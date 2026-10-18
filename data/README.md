@@ -1,6 +1,6 @@
 # 💾 Urbanix Datasets & Data Provenance
 
-![Status](https://img.shields.io/badge/Status-Validated%20(Day%202)-brightgreen)
+![Status](https://img.shields.io/badge/Status-Audited%20%26%20Complete%20(Day%202)-brightgreen)
 ![License-Traffic](https://img.shields.io/badge/Traffic_License-CC--BY%204.0-blue)
 ![License-AQI](https://img.shields.io/badge/AQI_License-US_Public_Domain-green)
 ![License-Weather](https://img.shields.io/badge/Weather_License-ODbL%201.0-lightgrey)
@@ -30,6 +30,7 @@ This directory houses verified historical benchmark datasets replayed through th
   $$\text{speed\_kmph} = \text{round}(\text{speed\_mph} \times 1.60934, 2)$$
 * **Zone Assignment Strategy:** Deterministic modulo mapping of physical sensor station IDs across 5 Urbanix zones:
   $$\text{zone\_id} = \text{zone\_}(( \text{sensor\_id} \pmod 5 ) + 1)$$
+  *(Important: This mapping is provisional for simulation load balancing across the platform's 5 zones. It does not represent official municipal or administrative GIS boundaries).*
 * **Sample File:** `data/traffic_sample.csv` (239 timestamps across all 207 sensors = 49,473 real velocity records, spanning `2012-03-01 00:00:00` to `2012-03-01 19:50:00`).
 
 ---
@@ -78,7 +79,7 @@ This directory houses verified historical benchmark datasets replayed through th
   $$\text{temperature\_celsius} = \text{round}(\text{temperature\_kelvin} - 273.15, 2)$$
 * **Regional Spatial Assumption:** A single regional weather observation applies across the Los Angeles grid zones without manufacturing artificial variations between zones.
 * **Sample File:** `data/weather_sample.csv` (162 continuous hourly observations for Los Angeles from `2012-10-01 13:00:00` to `2012-10-08 06:00:00`). The initial row at `12:00:00` contained missing values and was dropped, yielding 162 matching pairs.
-* **Temporal Offset Limitation:** The Kaggle OpenWeather dataset begins on October 1, 2012, whereas METR-LA loop data begins in March 2012. Each producer replays its stream sequentially with its authentic observation timestamp preserved.
+* **Day 3 Stream-Join Integration Constraint:** The Kaggle OpenWeather dataset begins on October 1, 2012, whereas METR-LA loop data begins in March 2012. For Day 2 replay, each producer sequentially emits observations with its authentic historical timestamp preserved. Day 3 Spark Structured Streaming must handle this calendar offset as a deliberate integration constraint (e.g., via normalized simulation timestamps, outer joins, or time-window watermarking) rather than fabricating weather measurements.
 
 ---
 
@@ -96,23 +97,29 @@ To maintain strict data integrity and prevent repository bloat, Urbanix uses a 4
 [ Tier 4: Streaming Kafka Events ] --> (JSON serialized events emitted to broker)
 ```
 
-1. **Raw Archives:** Never committed to Git. Downloaded on demand or stored in temporary scratch caches.
+1. **Raw Archives:** Never committed to Git. Stored in `data/raw/` or temporary download caches.
 2. **Preprocessing Script (`prepare_data.py`):** Deterministic, reproducible Python script that creates trimmed, validated CSV samples.
 3. **Local Samples:** Stored in `data/*.csv`. Explicitly ignored by `.gitignore` to keep the repository lightweight and clone-friendly.
 4. **Kafka Events:** Real-time JSON telemetry generated on the fly during accelerated replay.
 
 ---
 
-## 3. Data Preparation Script
+## 3. Data Preparation Script & Raw Data Placement
 
-To extract, clean, and regenerate the sample datasets from verified sources, run:
+To extract, clean, and regenerate the sample datasets from verified sources:
 
-```powershell
-python data/prepare_data.py
-```
+1. **Raw Data Placement:** Place the raw upstream files in `data/raw/` (or set `URBANIX_RAW_DATA_DIR`):
+   * `metr_la_sample_raw.csv` or `METR-LA.csv` (from Zenodo 5724362)
+   * `daily_88101_2012.zip` or `daily_88101_2012.csv` (from EPA AirData)
+   * `weather_temp_sample.csv` and `weather_humidity_sample.csv` (from Kaggle OpenWeather mirror)
+
+2. **Execute Preprocessing:**
+   ```powershell
+   python data/prepare_data.py
+   ```
 
 This script:
-1. Validates raw source files in local scratch/download paths.
+1. Validates raw source files in `data/raw/` or scratch directories.
 2. Trims and validates the METR-LA 207-sensor matrix.
 3. Filters EPA AirData to Los Angeles County criteria monitors strictly within the March–June 2012 window.
 4. Joins Kelvin temperatures and humidity percentages for Los Angeles.

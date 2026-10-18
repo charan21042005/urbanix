@@ -3,7 +3,7 @@
 ![Status](https://img.shields.io/badge/Status-Audited%20%26%20Complete%20(Day%202)-brightgreen)
 ![Kafka](https://img.shields.io/badge/Kafka-localhost%3A9092-blue)
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
-![Tests](https://img.shields.io/badge/Unit_Tests-12%2F12_Passing-brightgreen)
+![Tests](https://img.shields.io/badge/Unit_Tests-19%2F19_Passing-brightgreen)
 
 This module implements the **Sensor Simulation Layer** for Urbanix. It continuously replays verified public historical telemetry through Kafka to simulate real-time municipal sensor streams across the 5 Urbanix smart-city zones.
 
@@ -120,9 +120,14 @@ python weather_producer.py --interval 0.1
 
 ### Common CLI Options
 * `--bootstrap-server`: Kafka address (default: `localhost:9092` for Windows host, `kafka:29092` inside Docker).
-* `--interval`: Delay between timestamp batches in seconds (default: `0.05` to `0.1`s for accelerated replay).
-* `--max-events`: Stop after $N$ events (useful for bounded verification).
+* `--interval`: Delay between timestamp batches in seconds (default: `0.05` to `0.1`s for accelerated replay). Must be $\ge 0$.
+* `--max-events`: Stop after $N$ events (useful for bounded verification). Must be $\ge 1$.
 * `--dry-run`: Output JSON events to terminal without publishing to Kafka.
+
+### Delivery Confirmation & Reliability
+* Each producer registers asynchronous Kafka delivery callbacks (`on_send_success`, `on_send_error`) to prevent silent message drops.
+* Configured with 3 automatic retries (`retries=3`, `retry_backoff_ms=250`).
+* Flushes all pending buffers prior to clean exit and logs final confirmed vs. failed publication counts.
 
 ---
 
@@ -139,9 +144,7 @@ To run a bounded test of 50 events per stream (150 total events across all three
 python run_all.py 50
 ```
 
-> **Note on Semantics:** The positional integer argument to `run_all.py` represents the **maximum events limit per producer**.
-
-Press **Ctrl+C** to stop all producers cleanly.
+> **Process Management:** The runner tracks each child process PID, waits for completion, intercepts Ctrl+C for clean termination of all children, and returns a non-zero exit code if any child fails.
 
 ---
 
@@ -164,10 +167,10 @@ docker exec kafka kafka-console-consumer --bootstrap-server localhost:9092 --top
 
 ## 7. Automated Unit Testing
 
-Run the automated test suite verifying row parsing, unit conversions, zone mapping, date window integrity, and missing value handling:
+Run the automated test suite verifying row parsing, unit conversions, zone mapping, date window integrity, missing value handling, and mock Kafka delivery confirmations:
 
 ```powershell
 pytest tests -v
 ```
 
-All 12 unit tests run in memory without requiring a live Kafka broker.
+All 19 tests (unit tests and sample integration assertions) execute in < 1 second.

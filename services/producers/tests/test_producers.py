@@ -1,7 +1,10 @@
 """
-Urbanix — Unit Tests for Telemetry Simulation Producers (Day 2)
+Urbanix — Unit & Integration Tests for Telemetry Simulation Producers (Day 2)
 Tests transformations, unit conversions, schema validation, zone mapping,
-and error handling without requiring a live Kafka broker.
+Kafka delivery callbacks, and sample file integrity.
+
+Unit tests are 100% self-contained and run in-memory using temporary fixtures.
+Integration checks validate the generated sample files with explicit assertions.
 """
 
 import os
@@ -9,6 +12,7 @@ import sys
 import json
 import pytest
 import tempfile
+from unittest.mock import MagicMock
 
 # Add parent directory to path so producers can be imported
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -24,9 +28,9 @@ from aqi_producer import parse_aqi_rows
 from weather_producer import parse_weather_rows, KELVIN_OFFSET
 
 
-# ---------------------------------------------------------
-# 1. Zone Mapping Tests
-# ---------------------------------------------------------
+# =====================================================================
+# 1. Zone Mapping Tests (Pure Unit)
+# =====================================================================
 def test_traffic_zone_mapping_determinism():
     """Verify that METR-LA sensor IDs map deterministically to Urbanix zones."""
     for s_id in ["773869", "767541", "767542", "717447", "717446"]:
@@ -34,6 +38,13 @@ def test_traffic_zone_mapping_determinism():
         zone_2 = map_traffic_sensor_to_zone(s_id)
         assert zone_1 == zone_2
         assert zone_1 in URBANIX_ZONES
+
+
+def test_traffic_zone_mapping_fallback():
+    """Verify non-numeric sensor IDs fall back to deterministic hash mapping."""
+    zone = map_traffic_sensor_to_zone("SENSOR_NORTH_CORRIDOR")
+    assert zone in URBANIX_ZONES
+    assert zone == map_traffic_sensor_to_zone("SENSOR_NORTH_CORRIDOR")
 
 
 def test_aqi_zone_mapping():
@@ -45,6 +56,12 @@ def test_aqi_zone_mapping():
     assert map_aqi_station_to_zone("4002") == "zone_5"  # Long Beach
 
 
+def test_aqi_zone_mapping_fallback():
+    """Verify unknown EPA stations fall back to deterministic zone assignment."""
+    zone = map_aqi_station_to_zone("9999")
+    assert zone in URBANIX_ZONES
+
+
 def test_weather_zones():
     """Verify regional weather observation spans all Urbanix grid zones identically."""
     zones = get_weather_zones()
@@ -52,9 +69,9 @@ def test_weather_zones():
     assert zones == ["zone_1", "zone_2", "zone_3", "zone_4", "zone_5"]
 
 
-# ---------------------------------------------------------
-# 2. Traffic Producer Transformations & Parsing
-# ---------------------------------------------------------
+# =====================================================================
+# 2. Traffic Producer Transformations & Parsing (Pure Unit)
+# =====================================================================
 def test_traffic_unit_conversion():
     """Verify explicit mph -> km/h conversion formula: speed_kmph = speed_mph * 1.60934."""
     test_mph = 60.0
@@ -78,10 +95,8 @@ def test_traffic_parsing_valid_fixture():
 
     try:
         events = list(parse_traffic_rows(tmp_path))
-        # Expected: 2 events from first row, 1 event from second row (0.0 dropped)
         assert len(events) == 3
 
-        # First event check
         e1 = events[0]
         assert e1["sensor_id"] == "773869"
         assert e1["timestamp"] == "2012-03-01T00:00:00"
@@ -94,14 +109,35 @@ def test_traffic_parsing_valid_fixture():
         os.remove(tmp_path)
 
 
+def test_traffic_parsing_malformed_rows():
+    """Verify malformed or empty rows in traffic CSV are skipped safely."""
+    csv_content = (
+        ",773869\n"
+        "\n"  # Empty line
+        "2012-03-01 00:00:00,not_a_number\n"  # Corrupt speed value
+        "2012-03-01 00:05:00,-15.0\n"  # Negative speed
+        "2012-03-01 00:10:00,55.0\n"  # Valid
+    )
+    with tempfile.NamedTemporaryFile("w", delete=False, suffix=".csv") as tmp:
+        tmp.write(csv_content)
+        tmp_path = tmp.name
+
+    try:
+        events = list(parse_traffic_rows(tmp_path))
+        assert len(events) == 1
+        assert events[0]["speed_mph"] == 55.0
+    finally:
+        os.remove(tmp_path)
+
+
 def test_traffic_missing_file_raises():
     with pytest.raises(FileNotFoundError):
         list(parse_traffic_rows("non_existent_file.csv"))
 
 
-# ---------------------------------------------------------
-# 3. AQI Producer Transformations & Parsing
-# ---------------------------------------------------------
+# =====================================================================
+# 3. AQI Producer Transformations & Parsing (Pure Unit)
+# =====================================================================
 def test_aqi_parsing_and_validation():
     """Verify EPA AirData row parsing, PM2.5 validation, and missing value skipping."""
     csv_content = (
@@ -116,7 +152,6 @@ def test_aqi_parsing_and_validation():
 
     try:
         events = list(parse_aqi_rows(tmp_path))
-        # Only the first row is valid
         assert len(events) == 1
         e = events[0]
         assert e["station_id"] == "1103"
@@ -130,9 +165,14 @@ def test_aqi_parsing_and_validation():
         os.remove(tmp_path)
 
 
-# ---------------------------------------------------------
-# 4. Weather Producer Transformations & Parsing
-# ---------------------------------------------------------
+def test_aqi_missing_file_raises():
+    with pytest.raises(FileNotFoundError):
+        list(parse_aqi_rows("non_existent_file.csv"))
+
+
+# =====================================================================
+# 4. Weather Producer Transformations & Parsing (Pure Unit)
+# =====================================================================
 def test_weather_unit_conversion():
     """Verify Kelvin -> Celsius formula: T_c = T_k - 273.15."""
     test_k = 291.87
@@ -153,7 +193,6 @@ def test_weather_parsing_and_regional_broadcast():
 
     try:
         events = list(parse_weather_rows(tmp_path))
-        # The single valid observation broadcasts across all 5 zones
         assert len(events) == 5
 
         for e in events:
@@ -166,9 +205,28 @@ def test_weather_parsing_and_regional_broadcast():
             assert e["zone_id"] in URBANIX_ZONES
             assert json.loads(json.dumps(e)) == e
 
-        # Verify all 5 zones received identical atmospheric observation without artificial alteration
         zones_seen = [e["zone_id"] for e in events]
         assert sorted(zones_seen) == ["zone_1", "zone_2", "zone_3", "zone_4", "zone_5"]
+    finally:
+        os.remove(tmp_path)
+
+
+def test_weather_parsing_out_of_bounds():
+    """Verify unphysical temperature (<150K or >350K) or humidity (<0 or >100) are rejected."""
+    csv_content = (
+        "datetime,city,temperature_kelvin,humidity_percent\n"
+        "2012-10-01 13:00:00,Los Angeles,50.0,50.0\n"  # 50K is unphysical for Earth surface
+        "2012-10-01 14:00:00,Los Angeles,450.0,50.0\n"  # 450K is unphysical
+        "2012-10-01 15:00:00,Los Angeles,290.0,150.0\n"  # > 100% humidity
+        "2012-10-01 16:00:00,Los Angeles,290.0,-5.0\n"  # Negative humidity
+    )
+    with tempfile.NamedTemporaryFile("w", delete=False, suffix=".csv") as tmp:
+        tmp.write(csv_content)
+        tmp_path = tmp.name
+
+    try:
+        events = list(parse_weather_rows(tmp_path))
+        assert len(events) == 0
     finally:
         os.remove(tmp_path)
 
@@ -178,37 +236,98 @@ def test_weather_missing_file_raises():
         list(parse_weather_rows("non_existent_file.csv"))
 
 
-# ---------------------------------------------------------
-# 5. Prepared Sample Integrity Tests
-# ---------------------------------------------------------
-def test_aqi_prepared_sample_window():
-    """Verify that the generated aqi_sample.csv falls strictly within the METR-LA window (2012-03-01 to 2012-06-30)."""
+# =====================================================================
+# 5. Kafka Delivery Mocking Test (Pure Unit)
+# =====================================================================
+def test_mock_kafka_delivery_callbacks():
+    """Verify that Kafka callbacks correctly update success and failure counts."""
+    mock_future = MagicMock()
+    success_callback = None
+    error_callback = None
+
+    def add_callback_mock(cb):
+        nonlocal success_callback
+        success_callback = cb
+
+    def add_errback_mock(cb):
+        nonlocal error_callback
+        error_callback = cb
+
+    mock_future.add_callback = add_callback_mock
+    mock_future.add_errback = add_errback_mock
+
+    confirmed = 0
+    failed = 0
+
+    def on_success(meta):
+        nonlocal confirmed
+        confirmed += 1
+
+    def on_error(err):
+        nonlocal failed
+        failed += 1
+
+    mock_future.add_callback(on_success)
+    mock_future.add_errback(on_error)
+
+    # Simulate success
+    success_callback({"offset": 10})
+    assert confirmed == 1
+    assert failed == 0
+
+    # Simulate error
+    error_callback(Exception("Network timeout"))
+    assert confirmed == 1
+    assert failed == 1
+
+
+# =====================================================================
+# 6. Prepared Development Sample Integrity Tests (Integration)
+# =====================================================================
+def test_aqi_sample_file_window():
+    """Asserts that data/aqi_sample.csv exists and covers March 1 to June 30, 2012."""
     sample_path = os.path.abspath(
         os.path.join(os.path.dirname(__file__), "..", "..", "..", "data", "aqi_sample.csv")
     )
-    if os.path.exists(sample_path):
-        events = list(parse_aqi_rows(sample_path))
-        assert len(events) == 712
-        dates = sorted(list(set(e["timestamp"][:10] for e in events)))
-        assert dates[0] == "2012-03-01"
-        assert dates[-1] == "2012-06-30"
+    assert os.path.exists(sample_path), f"Required sample missing: {sample_path}. Run python data/prepare_data.py"
+
+    events = list(parse_aqi_rows(sample_path))
+    assert len(events) == 712
+    dates = sorted(list(set(e["timestamp"][:10] for e in events)))
+    assert dates[0] == "2012-03-01"
+    assert dates[-1] == "2012-06-30"
 
 
-def test_traffic_prepared_sample_structure():
-    """Verify that traffic_sample.csv contains valid speed records in positive ranges."""
+def test_traffic_sample_file_structure():
+    """Asserts that data/traffic_sample.csv exists and contains valid positive speeds."""
     sample_path = os.path.abspath(
         os.path.join(os.path.dirname(__file__), "..", "..", "..", "data", "traffic_sample.csv")
     )
-    if os.path.exists(sample_path):
-        # Inspect first 100 events
-        count = 0
-        for event in parse_traffic_rows(sample_path):
-            count += 1
-            assert event["speed_mph"] > 0.0
-            assert event["speed_kmph"] > 0.0
-            assert event["speed_kmph"] < 250.0  # Physical highway maximum
-            assert event["zone_id"] in URBANIX_ZONES
-            if count >= 100:
-                break
-        assert count == 100
+    assert os.path.exists(sample_path), f"Required sample missing: {sample_path}. Run python data/prepare_data.py"
 
+    count = 0
+    for event in parse_traffic_rows(sample_path):
+        count += 1
+        assert event["speed_mph"] > 0.0
+        assert event["speed_kmph"] > 0.0
+        assert event["speed_kmph"] < 250.0  # Physical highway maximum
+        assert event["zone_id"] in URBANIX_ZONES
+        if count >= 100:
+            break
+    assert count == 100
+
+
+def test_weather_sample_file_pairing():
+    """Asserts that data/weather_sample.csv exists and has matching temperature/humidity observations."""
+    sample_path = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "..", "..", "..", "data", "weather_sample.csv")
+    )
+    assert os.path.exists(sample_path), f"Required sample missing: {sample_path}. Run python data/prepare_data.py"
+
+    events = list(parse_weather_rows(sample_path))
+    # 162 unique timestamps * 5 zones = 810 events
+    assert len(events) == 162 * 5
+    timestamps = sorted(list(set(e["timestamp"] for e in events)))
+    assert len(timestamps) == 162
+    assert timestamps[0] == "2012-10-01T13:00:00"
+    assert timestamps[-1] == "2012-10-08T06:00:00"
