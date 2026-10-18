@@ -14,25 +14,68 @@
 ## 🗺️ 1. 12-Day Capstone Master Roadmap & Tracking Matrix
 
 ```mermaid
-gantt
-    title Urbanix 12-Day Engineering Roadmap
-    dateFormat  YYYY-MM-DD
-    section Phase 1: Core Foundation
-    Day 1 - Infrastructure & Cluster Setup      :done,    d1, 2026-10-17, 1d
-    Day 2 - Sensor Simulation & Kafka Producers :done,    d2, 2026-10-18, 1d
-    section Phase 2: Distributed Analytics
-    Day 3 - Spark Structured Streaming Engine  :active,  d3, 2026-10-19, 1d
-    Day 4 - Real-Time ML Risk Forecasting       :         d4, 2026-10-20, 1d
-    Day 5 - GraphX Road Network Modeling        :         d5, 2026-10-21, 1d
-    Day 6 - Dynamic Graph Rerouting Engine      :         d6, 2026-10-22, 1d
-    section Phase 3: Storage & Presentation
-    Day 7 - Analytical Data Sinks (Parquet/SQL) :         d7, 2026-10-23, 1d
-    Day 8 - FastAPI Gateway & WebSockets        :         d8, 2026-10-24, 1d
-    Day 9 - React & deck.gl Geospatial Frontend :         d9, 2026-10-25, 1d
-    Day 10 - Interactive Operator Dashboard     :         d10, 2026-10-26, 1d
-    section Phase 4: Finalization
-    Day 11 - End-to-End Verification & Benchmarks:       d11, 2026-10-27, 1d
-    Day 12 - Capstone Defense & Packaging       :         d12, 2026-10-28, 1d
+graph TD
+    %% Phase 1: Core Foundation & Ingestion
+    subgraph P1["<b>PHASE 1: Core Foundation & Ingestion (Days 1–2)</b> — [100% COMPLETE]"]
+        D1["<b>Day 1: Distributed Infrastructure Foundation</b><br>Zookeeper • Kafka Broker • Spark Master & Worker<br><b>Status: COMPLETE</b>"]
+        D2["<b>Day 2: Sensor Simulation Layer & Provenance</b><br>METR-LA • EPA AirData • OpenWeather • 3 Kafka Producers<br><b>Status: COMPLETE</b>"]
+        D1 --> D2
+    end
+
+    %% Phase 2: Distributed Analytics & Graph Engine
+    subgraph P2["<b>PHASE 2: Distributed Analytics & Graph Engine (Days 3–6)</b> — [ACTIVE / NEXT]"]
+        D3["<b>Day 3: Spark Structured Streaming Engine</b><br>Kafka Ingestion • Watermarking • Multi-Stream Window Joins<br><b>Status: UPCOMING NEXT</b>"]
+        D4["<b>Day 4: Real-Time ML Risk Forecasting</b><br>Spark MLlib • Feature Engineering • Municipal Risk Index<br><b>Status: PLANNED</b>"]
+        D5["<b>Day 5: Road Network Graph Modeling</b><br>Scala 2.12 • Apache Spark GraphX • LA Topological Graph<br><b>Status: PLANNED</b>"]
+        D6["<b>Day 6: Dynamic Congestion Rerouting</b><br>GraphX Dijkstra • Pregel API • Dynamic Edge Weights<br><b>Status: PLANNED</b>"]
+        D3 --> D4 --> D5 --> D6
+    end
+
+    %% Phase 3: Analytical Sinks & Operator Dashboard
+    subgraph P3["<b>PHASE 3: Analytical Sinks & Operator Dashboard (Days 7–10)</b> — [PLANNED]"]
+        D7["<b>Day 7: Analytical Data Sinks</b><br>Parquet Checkpoint Lake • PostgreSQL Risk Sinks<br><b>Status: PLANNED</b>"]
+        D8["<b>Day 8: API Gateway & WebSocket Server</b><br>FastAPI Async Server • Real-Time Telemetry WebSockets<br><b>Status: PLANNED</b>"]
+        D9["<b>Day 9: Geospatial Dashboard Core</b><br>React 18 • Vite • MapLibre GL • deck.gl 3D Hex Heatmaps<br><b>Status: PLANNED</b>"]
+        D10["<b>Day 10: Interactive Operator Dashboard</b><br>Route Comparator • Live Gauges • Recharts Time-Series<br><b>Status: PLANNED</b>"]
+        D7 --> D8 --> D9 --> D10
+    end
+
+    %% Phase 4: Benchmarks & Defense
+    subgraph P4["<b>PHASE 4: Benchmarks & Capstone Defense (Days 11–12)</b> — [PLANNED]"]
+        D11["<b>Day 11: End-to-End Testing & Chaos Benchmarks</b><br>Ingestion Latency • Fault Recovery • Stress Benchmarks<br><b>Status: PLANNED</b>"]
+        D12["<b>Day 12: Capstone Packaging & Viva Defense</b><br>Academic Defense • Final Report • Slide Deck Archival<br><b>Status: PLANNED</b>"]
+        D11 --> D12
+    end
+
+    %% Inter-Phase Transitions
+    D2 ==>|Kafka Stream Topics| D3
+    D6 ==>|Dynamic Edge Weights| D7
+    D10 ==>|Full Platform Integration| D11
+
+    %% Explicit High-Contrast Styling (Guaranteed Readability in Light & Dark Themes)
+    style D1 fill:#d4edda,stroke:#28a745,stroke-width:2px,color:#155724
+    style D2 fill:#d4edda,stroke:#28a745,stroke-width:2px,color:#155724
+    style D3 fill:#cce5ff,stroke:#007bff,stroke-width:2px,color:#004085
+    style D4 fill:#f8f9fa,stroke:#6c757d,stroke-width:1px,color:#212529
+    style D5 fill:#f8f9fa,stroke:#6c757d,stroke-width:1px,color:#212529
+    style D6 fill:#f8f9fa,stroke:#6c757d,stroke-width:1px,color:#212529
+    style D7 fill:#f8f9fa,stroke:#6c757d,stroke-width:1px,color:#212529
+    style D8 fill:#f8f9fa,stroke:#6c757d,stroke-width:1px,color:#212529
+    style D9 fill:#f8f9fa,stroke:#6c757d,stroke-width:1px,color:#212529
+    style D10 fill:#f8f9fa,stroke:#6c757d,stroke-width:1px,color:#212529
+    style D11 fill:#f8f9fa,stroke:#6c757d,stroke-width:1px,color:#212529
+    style D12 fill:#f8f9fa,stroke:#6c757d,stroke-width:1px,color:#212529
+```
+
+### 🛣️ Visual Phase-by-Phase Timeline
+```text
+Phase 1: Foundation (COMPLETE)        Phase 2: Analytics & Graph (NEXT)           Phase 3: Sinks & Dashboard (PLANNED)        Phase 4: Finalization
+┌──────────────────────────────────┐  ┌────────────────────────────────────────┐  ┌────────────────────────────────────────┐  ┌───────────────────────────────┐
+│ [Day 01] Docker & Spark Cluster✅│  │ [Day 03] Spark Structured Streaming ⏳ │  │ [Day 07] Parquet Data Sinks         📅 │  │ [Day 11] E2E Stress Testing 📅 │
+│ [Day 02] Sensors & Kafka Replay✅│──▶ [Day 04] MLlib Risk Forecasting      📅 │──▶ [Day 08] FastAPI & WebSockets       📅 │─▶│ [Day 12] Capstone Defense   📅 │
+└──────────────────────────────────┘  │ [Day 05] GraphX Road Modeling        📅 │  │ [Day 09] React & deck.gl 3D Maps    📅 │  └───────────────────────────────┘
+                                      │ [Day 06] Congestion Rerouting Engine 📅 │  │ [Day 10] Operator Command Console   📅 │
+                                      └────────────────────────────────────────┘  └────────────────────────────────────────┘
 ```
 
 | Day | Milestone / Module | Primary Tech Stack | Status | Deep-Dive Report Link |
