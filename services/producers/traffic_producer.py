@@ -8,6 +8,7 @@ Contract:
 - Topic: traffic-topic
 - Unit: km/h (explicitly converted from raw source mph via speed_mph * 1.60934)
 - Observations: Genuine historical sensor velocity measurements (no invented vehicle count)
+- Delivery: Producer confirms delivery via Kafka callbacks and flushes before reporting success
 """
 
 import os
@@ -103,6 +104,12 @@ def main():
     parser.add_argument("--dry-run", action="store_true", help="Print sample events without sending to Kafka")
     args = parser.parse_args()
 
+    # Input validation
+    if args.interval < 0:
+        parser.error("--interval cannot be negative")
+    if args.max_events is not None and args.max_events <= 0:
+        parser.error("--max-events must be a positive integer")
+
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
 
@@ -116,6 +123,18 @@ def main():
         print(f" - Max Events:      {args.max_events}")
     print("=" * 60)
 
+    confirmed_count = 0
+    failed_count = 0
+
+    def on_send_success(record_metadata):
+        nonlocal confirmed_count
+        confirmed_count += 1
+
+    def on_send_error(exception):
+        nonlocal failed_count
+        failed_count += 1
+        print(f"[-] Kafka delivery error on {args.topic}: {exception}", file=sys.stderr)
+
     producer = None
     if not args.dry_run:
         if KafkaProducer is None:
@@ -125,6 +144,8 @@ def main():
                 bootstrap_servers=args.bootstrap_server,
                 value_serializer=lambda v: json.dumps(v).encode("utf-8"),
                 acks=1,
+                retries=3,
+                retry_backoff_ms=250,
                 request_timeout_ms=10000,
             )
             print("[+] Successfully connected to Kafka broker.")
@@ -141,7 +162,7 @@ def main():
     signal.signal(signal.SIGINT, sig_handler)
     signal.signal(signal.SIGTERM, sig_handler)
 
-    published_count = 0
+    emitted_count = 0
     current_timestamp = None
 
     try:
@@ -151,10 +172,13 @@ def main():
 
             if args.dry_run:
                 print(f"[DRY-RUN] {json.dumps(event)}")
+                confirmed_count += 1
             else:
-                producer.send(args.topic, value=event)
+                future = producer.send(args.topic, value=event)
+                future.add_callback(on_send_success)
+                future.add_errback(on_send_error)
 
-            published_count += 1
+            emitted_count += 1
 
             # Throttle between timestamp slices to simulate temporal progression
             if current_timestamp != event["timestamp"]:
@@ -162,21 +186,24 @@ def main():
                 if args.interval > 0:
                     time.sleep(args.interval)
 
-            if published_count % 500 == 0:
-                print(f"[+] Replayed {published_count} traffic telemetry events (Current: {event['timestamp']})...")
+            if emitted_count % 500 == 0:
+                print(f"[+] Replayed {emitted_count} traffic telemetry events (Current: {event['timestamp']})...")
 
-            if args.max_events and published_count >= args.max_events:
+            if args.max_events and emitted_count >= args.max_events:
                 print(f"[OK] Reached max events limit ({args.max_events}). Stopping.")
                 break
 
     except Exception as e:
-        print(f"[-] Producer runtime error: {e}")
+        print(f"[-] Producer runtime error: {e}", file=sys.stderr)
+        failed_count += 1
     finally:
         if producer:
             producer.flush()
             producer.close()
             print("[+] Kafka producer flushed and closed cleanly.")
-        print(f"[OK] Traffic producer finished. Total published: {published_count} events.")
+        print(f"[OK] Traffic producer finished. Confirmed published: {confirmed_count} events (Failed: {failed_count}).")
+        if failed_count > 0:
+            sys.exit(1)
 
 
 if __name__ == "__main__":

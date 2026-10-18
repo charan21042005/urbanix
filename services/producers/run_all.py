@@ -10,6 +10,7 @@ import sys
 import time
 import subprocess
 import signal
+import argparse
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PYTHON_EXE = sys.executable
@@ -25,16 +26,27 @@ def main():
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
 
-    max_events = None
-    if len(sys.argv) > 1 and sys.argv[1].isdigit():
-        max_events = sys.argv[1]
+    parser = argparse.ArgumentParser(
+        description="Launch all 3 Urbanix simulation producers (Traffic, AQI, Weather) concurrently."
+    )
+    parser.add_argument(
+        "max_events",
+        nargs="?",
+        type=int,
+        default=None,
+        help="Optional maximum events limit PER PRODUCER (e.g. 50 runs 50 events each, 150 total)",
+    )
+    args = parser.parse_args()
+
+    if args.max_events is not None and args.max_events <= 0:
+        parser.error("max_events must be a positive integer")
 
     print("=" * 70)
     print("[RUN-ALL] Launching Urbanix Concurrent Telemetry Simulation (Day 2)")
     print(f" - Python Runtime: {PYTHON_EXE}")
     print(f" - Mode:           3 Concurrent Producers (Traffic, AQI, Weather)")
-    if max_events:
-        print(f" - Max Events:     {max_events} per producer")
+    if args.max_events:
+        print(f" - Max Events:     {args.max_events} PER PRODUCER (Total: {args.max_events * len(PRODUCERS)})")
     print(" - Press Ctrl+C at any time to shut down all producers cleanly.")
     print("=" * 70)
 
@@ -46,8 +58,8 @@ def main():
             os.path.join(BASE_DIR, p["script"]),
             "--interval", p["interval"],
         ]
-        if max_events:
-            cmd.extend(["--max-events", max_events])
+        if args.max_events:
+            cmd.extend(["--max-events", str(args.max_events)])
 
         proc = subprocess.Popen(
             cmd,
@@ -77,7 +89,6 @@ def main():
         while running:
             all_done = True
             for name, proc in processes:
-                # Read any available line without blocking
                 line = proc.stdout.readline()
                 if line:
                     print(f"[{name}] {line.strip()}")
@@ -101,7 +112,7 @@ def main():
                     proc.kill()
             if proc.returncode not in (0, None):
                 failed = True
-                print(f"[-] {name} exited with non-zero code: {proc.returncode}")
+                print(f"[-] {name} exited with non-zero code: {proc.returncode}", file=sys.stderr)
         print("[OK] All producer processes terminated cleanly.")
         if failed:
             sys.exit(1)
