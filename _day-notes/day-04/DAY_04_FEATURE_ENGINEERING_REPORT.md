@@ -388,6 +388,30 @@ $$\max(\text{train.target}) < \text{Cutoff} < \min(\text{test.feature}) \implies
 > **Resolution of Py4J Timezone Artifact:**
 > In early inspection logs, `11:50:00` and `11:55:00` appeared alongside `06:24:00 UTC`. This was a cosmetic serialization artifact of Py4J: when PySpark extracts a Java SQL `TimestampType` into a Python `Row`, Python deserializes it using the host machine's local system timezone (Indian Standard Time, UTC+05:30). `06:20:00 UTC + 05:30 = 11:50:00 IST`, and `06:25:00 UTC + 05:30 = 11:55:00 IST`. The underlying epoch seconds ($1330582800 \le 1330583040 < 1330583100$) have always strictly satisfied zero leakage. The pipeline explicitly enforces `date_format(..., 'yyyy-MM-dd HH:mm:ss')` directly in Spark SQL, ensuring all metadata strings are strictly in UTC.
 
+### 7.4 Complete, Exact Row Accounting & Conservation Proof
+Every observation from raw ingestion to persisted splits is tracked with zero loss and zero ambiguity:
+
+1. **Raw Feature Table (`raw_df`):** **480 rows**
+   - 96 distinct 5-minute tumbling windows $\times$ 5 municipal zones = 480 rows.
+2. **Quality Cleaning (`clean_df`):** **480 rows** (0 dropped)
+   - All 480 rows possess non-null, physically valid average speeds ($0 < v \le 250\text{ km/h}$).
+3. **Stage 2 Future Label Construction & Continuity Guard:** **10 rows dropped**
+   - **Exclusion Reason A (Telemetry Gap — 5 rows):** At `window_start = 2012-03-01 00:10:00 UTC`, the next available window in the historical stream is `00:25:00 UTC` ($\Delta t = 900\text{s} \ne 300\text{s}$). The Continuity Guard explicitly drops this interval across all 5 zones to prevent learning across sensor telemetry gaps.
+   - **Exclusion Reason B (Terminal Window — 5 rows):** At `window_start = 2012-03-01 08:05:00 UTC`, there is no subsequent window in the dataset (`lead() == NULL`). Exactly 1 row per zone is dropped.
+   - **Valid Labeled Candidates (`supervised_df`):** $480 - (5 + 5) =$ **470 rows**.
+4. **Stage 5 Conservative Boundary Splitting:** **5 rows dropped**
+   - **Exclusion Reason C (Boundary-Crossing — 5 rows):** At feature time `2012-03-01 06:20:00 UTC` ($\le \text{Cutoff}$ `06:24:00`), the target falls at `06:25:00 UTC` ($> \text{Cutoff}$). Exactly 1 row per zone is excluded from both train and test to guarantee no training sample evaluates loss on test-period ground truth.
+   - **Retained Labeled Modeling Rows:** $470 - 5 =$ **465 rows**.
+5. **Final Persisted Partitions:**
+   - **Training Set (`data/train/`):** **365 rows** (73 five-minute intervals $\times$ 5 zones, spanning target times `00:05:00` to `06:20:00 UTC`).
+   - **Testing Set (`data/test/`):** **100 rows** (20 five-minute intervals $\times$ 5 zones, spanning feature times `06:25:00` to `08:00:00 UTC`).
+   - **Sample Disjointness & Intersect:** 0 overlapping keys, 0 duplicates.
+
+#### The Exact Row Conservation Equation:
+$$N_{\text{raw}} = N_{\text{train}} + N_{\text{test}} + N_{\text{boundary}} + N_{\text{gap}} + N_{\text{terminal}}$$
+$$480 = 365 + 100 + 5 + 5 + 5$$
+$$480 = 465 + 15 = 480 \quad \text{[EXACT BALANCE]}$$
+
 ---
 
 ## 🧩 8. Step-by-Step Code Walkthrough: `prepare_training_data.py`
@@ -806,6 +830,15 @@ services/streaming/tests/test_training_data.py::test_deterministic_split PASSED 
 #### Q25: *"How will Day 5 use the datasets produced today?"*
 * **Defense:**  
   *"Day 5 will ingest `data/train/` directly, fit `LinearRegression` and `DecisionTreeRegressor` models on the assembled `features` vector to predict `next_avg_speed_kmph`, evaluate predictions on `data/test/` using `RegressionEvaluator`, and log $R^2$, RMSE, and MAE across zones."*
+
+#### Q26: *"State the exact row accounting equation proving how 480 raw rows yield 365 train and 100 test rows."*
+* **Defense:**
+  *"The accounting is governed by three strict, deterministic engineering filters:
+  1. $480\text{ raw rows}$ in `data/feature_table/traffic` (96 intervals $\times$ 5 zones).
+  2. $10\text{ rows excluded in Stage 2}$: 5 rows at `00:10:00 UTC` dropped by the Continuity Guard because the next window is `00:25:00 UTC` ($\Delta t = 900\text{s} \ne 300\text{s}$, a 15-min telemetry gap); and 5 terminal rows at `08:05:00 UTC` dropped because `lead() == NULL`. This yields $480 - 10 = 470\text{ valid labeled rows}$.
+  3. $5\text{ rows excluded in Stage 5}$: At `06:20:00 UTC`, observations have $\text{window\_start} \le \text{Cutoff}$ but $\text{target\_window\_start} > \text{Cutoff}$. They are discarded to prevent cross-boundary target evaluation. This leaves $470 - 5 = 465\text{ retained rows}$.
+  4. Chronological partition: $365\text{ training rows}$ (target $\le$ cutoff) and $100\text{ testing rows}$ (feature $>$ cutoff).
+  Equation: $N_{\text{raw}} = 365\text{ (train)} + 100\text{ (test)} + 5\text{ (boundary)} + 5\text{ (gap)} + 5\text{ (terminal)} = 480$."*
 
 ---
 
