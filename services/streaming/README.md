@@ -1,16 +1,16 @@
 # 🌊 Urbanix Stream Processing & Feature Engineering Engine (`services/streaming/`)
 
-![Status](https://img.shields.io/badge/Status-Day_3_Verified-brightgreen)
+![Status](https://img.shields.io/badge/Status-Day_4_Complete_(Feature_Engineering_&_Split)-brightgreen)
 ![Engine](https://img.shields.io/badge/Engine-Apache_Spark_3.5.1-orange)
-![API](https://img.shields.io/badge/API-PySpark_Structured_Streaming-blue)
+![API](https://img.shields.io/badge/API-PySpark_Structured_Streaming_+_MLlib-blue)
 ![Format](https://img.shields.io/badge/Storage-Parquet_Feature_Tables-success)
-![Watermarking](https://img.shields.io/badge/Semantics-2_min_Watermark_+_5_min_Tumbling_Window-purple)
+![Tests](https://img.shields.io/badge/Tests-25%2F25_Passing_(14_Stream_+_11_ML)-brightgreen)
 
-This directory houses the distributed **Apache Spark Structured Streaming** engine for the **Urbanix Platform**. It consumes high-velocity telemetry from Kafka, enforces explicit schemas, performs physical measurement boundary validation, computes 5-minute tumbling window aggregations with an event-time watermark, joins static municipal zone metadata, and persists feature datasets into partitioned Parquet sinks with checkpointed fault tolerance.
+This directory houses the distributed **Apache Spark Structured Streaming and Feature Engineering** engine for the **Urbanix Platform**. It consumes high-velocity telemetry from Kafka, enforces explicit schemas, performs physical measurement boundary validation, computes 5-minute tumbling window aggregations with an event-time watermark, joins static municipal zone metadata, persists feature datasets into partitioned Parquet sinks with checkpointed fault tolerance, and prepares model-ready, zero-leakage training and testing datasets for Spark MLlib forecasting.
 
 ---
 
-## 🏛️ 1. Stream Processing Pipeline Architecture (Day 3 Contract)
+## 🏛️ 1. Stream Processing Pipeline Architecture (Day 3 & Day 4 Contract)
 
 ```mermaid
 graph TD
@@ -59,13 +59,16 @@ graph TD
 
 ```text
 services/streaming/
-├── README.md                 # Streaming architecture, run commands, and schema documentation
-├── requirements.txt          # PySpark, pytest, and python-dotenv dependencies
-├── schemas.py                # Explicit PySpark StructType schemas for Kafka payloads & zones
-├── streaming_job.py          # Structured Streaming pipeline with 3 independent queries
-├── verify_features.py        # Parquet feature table validation & schema assertion utility
+├── README.md                   # Streaming & ML feature pipeline architecture and run commands
+├── requirements.txt            # PySpark, numpy, pytest, and python-dotenv dependencies
+├── schemas.py                  # Explicit PySpark StructType schemas for Kafka payloads & zones
+├── streaming_job.py            # Structured Streaming pipeline with 3 independent queries
+├── verify_features.py          # Parquet feature table validation & schema assertion utility
+├── prepare_training_data.py    # Day 4: Future label construction, feature engineering, chronological split
+├── verify_split.py             # Day 4: Independent reload verification for train/test splits & zero leakage
 └── tests/
-    └── test_streaming.py     # 14 deterministic tests covering parsing, windowing, and edge cases
+    ├── test_streaming.py       # 14 deterministic tests covering parsing, windowing, and edge cases
+    └── test_training_data.py   # 11 unit & integration tests covering label construction, leakage & splits
 ```
 
 ---

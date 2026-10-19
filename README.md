@@ -8,8 +8,8 @@
 ![Apache Spark](https://img.shields.io/badge/Apache%20Spark-3.5.1_(UI%3A%208081)-orange?style=for-the-badge&logo=apachespark)
 ![Scala](https://img.shields.io/badge/Scala-GraphX-dc322f?style=for-the-badge&logo=scala)
 ![Docker](https://img.shields.io/badge/Docker-Compose_Cluster-2496ED?style=for-the-badge&logo=docker)
-![Milestone](https://img.shields.io/badge/Day_3-Complete_(Spark_Structured_Streaming_Verified)-brightgreen?style=for-the-badge)
-![Tests](https://img.shields.io/badge/Tests-33%2F33_Passing_(19_Prod_+_14_Stream)-brightgreen?style=for-the-badge)
+![Milestone](https://img.shields.io/badge/Day_4-Complete_(Feature_Engineering_&_Split_Verified)-brightgreen?style=for-the-badge)
+![Tests](https://img.shields.io/badge/Tests-44%2F44_Passing_(19_Prod_+_14_Stream_+_11_ML)-brightgreen?style=for-the-badge)
 ![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)
 
 *A distributed Kafka + Spark platform for streaming urban telemetry, forecasting localized traffic and environmental risk, and supporting congestion-aware route planning.*
@@ -157,15 +157,17 @@ Congestion-derived Road Weights
 Congestion-weighted Shortest Path
           ↓
 Recommended Route
-   ### 📦 The Six Core Modules
+```
+
+### 📦 The Six Core Modules
 | Module | Purpose | Technology | Status | Deep-Dive Guide |
 |---|---|---|:---:|---|
 | **M1 — Sensor Simulation Layer** | Ingests & replays verified public telemetry (Traffic, AQI, Weather) with delivery callbacks | Python 3.10, `kafka-python-ng` | **COMPLETE ✅** (Day 2) | [`services/producers/README.md`](services/producers/README.md) |
 | **M2 — Kafka Streaming Core** | Distributed event messaging backbone & topic provisioning | Apache Kafka, Zookeeper | **COMPLETE ✅** (Day 1) | [`infra/README.md`](infra/README.md) |
-| **M3 — Structured Streaming + SQL** | Real-time multi-stream window joins, watermarking & risk calculation | PySpark 3.5.1, Spark SQL | **ACTIVE / NEXT ⏳** (Day 3) | [`services/streaming/README.md`](services/streaming/README.md) |
-| **M4 — Spark MLlib Forecasting** | Regressor models predicting near-future speed and particulate matter | Spark MLlib | 📅 Planned (Days 4–6) | [`services/streaming/README.md`](services/streaming/README.md) |
-| **M5 — Scala Spark GraphX Rerouting** | Dynamic road network graph modeling & congestion-aware pathfinding | Scala 2.12, GraphX | 📅 Planned (Days 7–9) | [`services/graphx-reroute/README.md`](services/graphx-reroute/README.md) |
-| **M6 — Geospatial Dashboard** | Real-time 3D operator dashboard & REST/WebSocket API | React 18, FastAPI, deck.gl | 📅 Planned (Days 10–11) | [`dashboard/README.md`](dashboard/README.md) |
+| **M3 — Structured Streaming + SQL** | Real-time multi-stream window joins, watermarking & feature tables | PySpark 3.5.1, Spark SQL | **COMPLETE ✅** (Day 3) | [`services/streaming/README.md`](services/streaming/README.md) |
+| **M4 — Spark MLlib Forecasting** | Feature engineering, zero-leakage split & speed/pollution regressor models | Spark MLlib | **IN PROGRESS ⏳** (Day 4 Complete; Day 5 Next) | [`services/streaming/README.md`](services/streaming/README.md) |
+| **M5 — Scala Spark GraphX Rerouting** | Dynamic road network graph modeling & congestion-aware pathfinding | Scala 2.12, GraphX | 📅 Planned (Days 6–7) | [`services/graphx-reroute/README.md`](services/graphx-reroute/README.md) |
+| **M6 — Geospatial Dashboard** | Real-time 3D operator dashboard & REST/WebSocket API | React 18, FastAPI, deck.gl | 📅 Planned (Days 8–10) | [`dashboard/README.md`](dashboard/README.md) |
 
 ## 🛠️ Technology Stack
 <details>
@@ -174,15 +176,15 @@ Recommended Route
 - **Host Languages:** Python 3.10.11, Scala 2.12, Java JDK 25.0.2 (session isolated)
 - **Streaming & Messaging:** Apache Kafka 7.5.0, Zookeeper 7.5.0 (`kafka-python-ng`)
 - **Distributed Stream Processing:** Apache Spark 3.5.1 (PySpark Structured Streaming, Spark SQL)
-- **Machine Learning:** Apache Spark MLlib (Linear Regression, Decision Tree Regressor)
+- **Machine Learning:** Apache Spark MLlib (`VectorAssembler`, `StringIndexer`, Linear Regression, Decision Tree Regressor)
 - **Graph Processing:** Scala 2.12, Apache Spark GraphX
 - **Infrastructure Orchestration:** Docker Engine, Docker Compose v3.8 (isolated bridge network)
-- **Testing & Verification:** pytest 9.1.1 (19 automated unit & integration tests)
+- **Testing & Verification:** pytest 9.1.1 (44 automated unit, integration & leakage tests)
 - **API & Visualization:** FastAPI, WebSockets, React 18, Vite, MapLibre GL, deck.gl
 - **Analytical Storage:** Partitioned Parquet, Data Lake Checkpoints
 </details>
 
-## 🚀 Quick Start & Day 1–2 Reproduction Guide
+## 🚀 Quick Start & Day 1–4 Reproduction Guide
 
 ### 1. Boot Distributed Infrastructure (Kafka & Spark)
 ```powershell
@@ -193,47 +195,47 @@ docker ps  # Verifies 4 containers: zookeeper, kafka, spark-master, spark-worker
 * **Kafka External Broker:** `localhost:9092`
 * **Spark Master Web UI:** `http://localhost:8081` *(mapped from container port 8080)*
 
-### 2. Set Up Python Producer Virtual Environment
+### 2. Set Up Virtual Environments
 ```powershell
-cd services\producers
-python -m venv venv
-.\venv\Scripts\Activate.ps1
-pip install -r requirements.txt
+# Producer environment:
+python -m venv services\producers\venv
+.\services\producers\venv\Scripts\pip install -r services\producers\requirements.txt
+
+# Streaming & ML environment:
+python -m venv services\streaming\venv
+.\services\streaming\venv\Scripts\pip install -r services\streaming\requirements.txt
 ```
 
-### 3. Run Automated Unit & Integration Tests (19/19 Tests)
+### 3. Run Automated Full Test Suite (44/44 Tests Passing)
 ```powershell
-# From services/producers or project root:
-pytest services/producers/tests -v
+# Day 2 Producer tests (19 tests):
+.\services\producers\venv\Scripts\pytest services/producers/tests -v
+
+# Day 3 Streaming tests (14 tests):
+.\services\streaming\venv\Scripts\pytest services/streaming/tests/test_streaming.py -v
+
+# Day 4 ML Feature Engineering & Split tests (11 tests):
+.\services\streaming\venv\Scripts\pytest services/streaming/tests/test_training_data.py -v
 ```
 
-### 4. Execute Telemetry Simulation Stream (Concurrent Replay)
+### 4. Execute Feature Engineering & Verify Persisted Parquet Outputs
 ```powershell
-# Replay 5 events per stream concurrently (Traffic, AQI, Weather = 15 total events)
-python services\producers\run_all.py 5
-```
+# Generate model-ready training and testing splits:
+.\services\streaming\venv\Scripts\python services/streaming/prepare_training_data.py
 
-### 5. Verify Ingested Events Directly From Kafka
-```powershell
-# Inspect traffic-topic
-docker exec kafka kafka-console-consumer --bootstrap-server localhost:9092 --topic traffic-topic --from-beginning --max-messages 2
-
-# Inspect aqi-topic
-docker exec kafka kafka-console-consumer --bootstrap-server localhost:9092 --topic aqi-topic --from-beginning --max-messages 2
-
-# Inspect weather-topic
-docker exec kafka kafka-console-consumer --bootstrap-server localhost:9092 --topic weather-topic --from-beginning --max-messages 2
+# Run independent zero-leakage verification:
+.\services\streaming\venv\Scripts\python services/streaming/verify_split.py
 ```
 
 ## 🗺️ 12-Day Engineering Roadmap
 * **Phase 1: Core Foundation & Ingestion (COMPLETE ✅)**
   * [x] **Day 1:** Local Environment + Docker Cluster (Zookeeper, Kafka, Spark Master/Worker) + Topics
   * [x] **Day 2:** Sensor Simulation Producers (Traffic, AQI, Weather) + Delivery Guarantees + 19 Tests
-* **Phase 2: Distributed Analytics & Graph Engine (ACTIVE ⏳)**
-  * [ ] **Day 3:** Spark Structured Streaming + Watermarking + Multi-Stream Window Joins *(Next)*
-  * [ ] **Day 4:** Feature Engineering + Chronological Split + Municipal Risk Index
-  * [ ] **Day 5:** Scala/sbt + Road Network Property Graph Modeling
-  * [ ] **Day 6:** GraphX Congestion-Weighted Dynamic Shortest Path (Dijkstra / Pregel)
+* **Phase 2: Distributed Analytics & Graph Engine (IN PROGRESS ⏳)**
+  * [x] **Day 3:** Spark Structured Streaming + Watermarking + Multi-Stream Window Joins
+  * [x] **Day 4:** Feature Engineering + Chronological Split + Parquet Datasets
+  * [ ] **Day 5:** Apache Spark MLlib Linear Regression & DecisionTree Training *(Active Next)*
+  * [ ] **Day 6:** Scala/sbt + Road Network Property Graph Modeling & Dynamic Routing
 * **Phase 3: Storage, Gateway & Dashboard (PLANNED 📅)**
   * [ ] **Day 7:** Parquet Analytical Sinks + State Store Checkpoints
   * [ ] **Day 8:** FastAPI Gateway + Asynchronous WebSocket Telemetry Server
@@ -244,30 +246,30 @@ docker exec kafka kafka-console-consumer --bootstrap-server localhost:9092 --top
   * [ ] **Day 12:** Capstone Documentation Finalization + Academic Viva Defense
 
 ## 📊 Current Implementation Status
-**Current Phase: Transitioning from Day 3 to Day 4 (Real-Time ML Risk Forecasting)**
+**Current Phase: Transitioning from Day 4 to Day 5 (Apache Spark MLlib Modeling)**
 - [x] **Repository & Monorepo Scaffold:** Verified & clean working tree
-- [x] **Environment Isolation:** JDK 25 session-isolated; Python 3.10 virtualenv configured
+- [x] **Environment Isolation:** JDK 25 session-isolated; Python 3.10 virtualenvs configured
 - [x] **Docker Infrastructure:** Zookeeper, Kafka, Spark Master, Spark Worker running
 - [x] **Kafka Topics Provisioned:** `traffic-topic`, `aqi-topic`, `weather-topic` (1 partition, 1 replica)
 - [x] **Public Dataset Provenance:** METR-LA (Caltrans PeMS), EPA AirData (PM2.5), OpenWeather
-- [x] **Data Preparation Script:** `data/prepare_data.py` verified; EPA constrained to March–June 2012 (712 rows)
 - [x] **Telemetry Producers:** Traffic, AQI, and Weather producers with Kafka delivery callbacks & retries
 - [x] **Concurrent Runner:** `run_all.py` supervisor with clean signal handling and exit codes
-- [x] **Automated Test Suite (Producers):** 19/19 tests passing in pytest (unit tests + sample integrity checks)
-- [x] **End-to-End Simulation Replay:** Live bounded replays and console consumer validations passed
 - [x] **Spark Structured Streaming (Day 3):** 3 independent streaming queries, 2-min watermarks, 5-min tumbling windows, static zone joins, independent Parquet feature tables
-- [x] **Automated Test Suite (Streaming):** 14/14 tests passing in pytest (schemas, parsing, windowing, nulls)
-- [x] **End-to-End Feature Verification:** Parquet feature tables verified via `verify_features.py` (Traffic, AQI, Weather all PASS)
-- [ ] **MLlib Risk Forecasting (Day 4):** Up next
-- [ ] **GraphX Dynamic Routing (Days 5–6):** Planned
+- [x] **Feature Engineering & Future Target (Day 4):** Supervised target formulation via `lead()`, 300s Continuity Guard, cyclic time encodings
+- [x] **Estimator Hygiene & Vector Assembly:** `StringIndexer` fit on training split only, `VectorAssembler` 9-feature vectors, target strictly excluded
+- [x] **Chronological Split & Zero Leakage:** 80% elapsed time cutoff (`06:24:00 UTC`), 5 boundary-crossing rows excluded, verified: $\max(\text{train.target}) < \min(\text{test.feature})$
+- [x] **Automated Test Suite (Full Stack):** 44/44 tests passing in pytest (19 producers + 14 streaming + 11 feature preparation)
+- [x] **Independent Data Verifiers:** `verify_features.py` and `verify_split.py` passing against persisted Parquet
+- [ ] **MLlib Model Training & Evaluation (Day 5):** Linear Regression, DecisionTreeRegressor, RMSE/R2 evaluation *(Active Next)*
+- [ ] **GraphX Dynamic Routing (Day 6):** Planned
 - [ ] **Geospatial Operator Dashboard (Days 8–10):** Planned
 
 ## 📁 Repository Structure
 - [`services/`](services/README.md) - Microservices computational tier
   - [`producers/`](services/producers/README.md) - Sensor data simulation & Kafka streaming (Day 2 Complete)
     - [`tests/`](services/producers/tests/README.md) - Automated unit test suite (19 tests)
-  - [`streaming/`](services/streaming/README.md) - PySpark Structured Streaming engine & feature tables (Day 3 Complete)
-    - [`tests/`](services/streaming/tests/) - Automated streaming test suite (14 tests)
+  - [`streaming/`](services/streaming/README.md) - PySpark Structured Streaming & Feature Engineering (Days 3 & 4 Complete)
+    - [`tests/`](services/streaming/tests/) - Automated streaming & feature test suites (25 tests)
   - [`graphx-reroute/`](services/graphx-reroute/README.md) - Scala GraphX dynamic routing engine
 - [`infra/`](infra/README.md) - Docker Compose distributed cluster (Day 1 Complete)
 - [`data/`](data/README.md) - Verified public sample datasets, static grid zones & preprocessing scripts
@@ -277,6 +279,7 @@ docker exec kafka kafka-console-consumer --bootstrap-server localhost:9092 --top
   - [`day-01/`](_day-notes/day-01/DAY_01_INFRASTRUCTURE_REPORT.md) - Day 1 Infrastructure Deep-Dive Report
   - [`day-02/`](_day-notes/day-02/DAY_02_SENSOR_SIMULATION_REPORT.md) - Day 2 Sensor Simulation Deep-Dive Report
   - [`day-03/`](_day-notes/day-03/DAY_03_STREAMING_REPORT.md) - Day 3 Structured Streaming Deep-Dive Report
+  - [`day-04/`](_day-notes/day-04/DAY_04_FEATURE_ENGINEERING_REPORT.md) - Day 4 Feature Engineering & Chronological Split Deep-Dive Report
 - [`.github/workflows/`](.github/workflows/README.md) - Automated CI/CD pipelines & matrix test runners
 
 ## 🎓 Learning & Engineering Philosophy

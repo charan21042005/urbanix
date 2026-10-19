@@ -25,10 +25,10 @@ graph TD
     end
 
     %% Phase 2: Distributed Analytics & Graph Engine
-    subgraph P2["<b>PHASE 2: Distributed Analytics & Graph Engine (Days 3–6)</b> — [ACTIVE / NEXT]"]
-        D3["<b>Day 3: Spark Structured Streaming Engine</b><br>Kafka Ingestion • Watermarking • Multi-Stream Window Joins<br><b>Status: UPCOMING NEXT</b>"]
-        D4["<b>Day 4: Real-Time ML Risk Forecasting</b><br>Spark MLlib • Feature Engineering • Municipal Risk Index<br><b>Status: PLANNED</b>"]
-        D5["<b>Day 5: Road Network Graph Modeling</b><br>Scala 2.12 • Apache Spark GraphX • LA Topological Graph<br><b>Status: PLANNED</b>"]
+    subgraph P2["<b>PHASE 2: Distributed Analytics & Graph Engine (Days 3–6)</b> — [IN PROGRESS]"]
+        D3["<b>Day 3: Spark Structured Streaming Engine</b><br>Kafka Ingestion • Watermarking • Multi-Stream Window Joins<br><b>Status: COMPLETE</b>"]
+        D4["<b>Day 4: Feature Engineering & Chronological Split</b><br>Spark MLlib • VectorAssembler • Zero-Leakage Split<br><b>Status: COMPLETE</b>"]
+        D5["<b>Day 5: MLlib Regressor Training & Evaluation</b><br>Linear Regression • Decision Tree • RMSE / R2 Evaluation<br><b>Status: ACTIVE NEXT</b>"]
         D6["<b>Day 6: Dynamic Congestion Rerouting</b><br>GraphX Dijkstra • Pregel API • Dynamic Edge Weights<br><b>Status: PLANNED</b>"]
         D3 --> D4 --> D5 --> D6
     end
@@ -57,9 +57,9 @@ graph TD
     %% Explicit High-Contrast Styling (Guaranteed Readability in Light & Dark Themes)
     style D1 fill:#d4edda,stroke:#28a745,stroke-width:2px,color:#155724
     style D2 fill:#d4edda,stroke:#28a745,stroke-width:2px,color:#155724
-    style D3 fill:#cce5ff,stroke:#007bff,stroke-width:2px,color:#004085
-    style D4 fill:#f8f9fa,stroke:#6c757d,stroke-width:1px,color:#212529
-    style D5 fill:#f8f9fa,stroke:#6c757d,stroke-width:1px,color:#212529
+    style D3 fill:#d4edda,stroke:#28a745,stroke-width:2px,color:#155724
+    style D4 fill:#d4edda,stroke:#28a745,stroke-width:2px,color:#155724
+    style D5 fill:#cce5ff,stroke:#007bff,stroke-width:2px,color:#004085
     style D6 fill:#f8f9fa,stroke:#6c757d,stroke-width:1px,color:#212529
     style D7 fill:#f8f9fa,stroke:#6c757d,stroke-width:1px,color:#212529
     style D8 fill:#f8f9fa,stroke:#6c757d,stroke-width:1px,color:#212529
@@ -71,11 +71,11 @@ graph TD
 
 ### 🛣️ Visual Phase-by-Phase Timeline
 ```text
-Phase 1: Foundation (COMPLETE)        Phase 2: Analytics & Graph (NEXT)           Phase 3: Sinks & Dashboard (PLANNED)        Phase 4: Finalization
+Phase 1: Foundation (COMPLETE)        Phase 2: Analytics & Graph (IN PROGRESS)    Phase 3: Sinks & Dashboard (PLANNED)        Phase 4: Finalization
 ┌──────────────────────────────────┐  ┌────────────────────────────────────────┐  ┌────────────────────────────────────────┐  ┌───────────────────────────────┐
-│ [Day 01] Docker & Spark Cluster✅│  │ [Day 03] Spark Structured Streaming ⏳ │  │ [Day 07] Parquet Data Sinks         📅 │  │ [Day 11] E2E Stress Testing 📅 │
-│ [Day 02] Sensors & Kafka Replay✅│──▶ [Day 04] MLlib Risk Forecasting      📅 │──▶ [Day 08] FastAPI & WebSockets       📅 │─▶│ [Day 12] Capstone Defense   📅 │
-└──────────────────────────────────┘  │ [Day 05] GraphX Road Modeling        📅 │  │ [Day 09] React & deck.gl 3D Maps    📅 │  └───────────────────────────────┘
+│ [Day 01] Docker & Spark Cluster✅│  │ [Day 03] Spark Structured Streaming ✅ │  │ [Day 07] Parquet Data Sinks         📅 │  │ [Day 11] E2E Stress Testing 📅 │
+│ [Day 02] Sensors & Kafka Replay✅│──▶ [Day 04] Feature Eng & Split Pipeline ✅│──▶ [Day 08] FastAPI & WebSockets       📅 │─▶│ [Day 12] Capstone Defense   📅 │
+└──────────────────────────────────┘  │ [Day 05] MLlib Model Training & Eval ⏳ │  │ [Day 09] React & deck.gl 3D Maps    📅 │  └───────────────────────────────┘
                                       │ [Day 06] Congestion Rerouting Engine 📅 │  │ [Day 10] Operator Command Console   📅 │
                                       └────────────────────────────────────────┘  └────────────────────────────────────────┘
 ```
@@ -123,6 +123,30 @@ Phase 1: Foundation (COMPLETE)        Phase 2: Analytics & Graph (NEXT)         
   * Built `run_all.py` concurrent runner tracking child PIDs and handling clean `SIGINT` termination.
   * Authored 19 automated tests (unit tests with mock Kafka + real sample assertions) running in $< 0.4s$.
   * Verified end-to-end replay and console consumer JSON outputs on all 3 topics.
+
+### Day 3: Spark Structured Streaming Engine
+* **Report:** [`day-03/DAY_03_STREAMING_REPORT.md`](file:///c:/Users/Tokachichu%20SriCharan/OneDrive/Documents/GitHub/urbanix/_day-notes/day-03/DAY_03_STREAMING_REPORT.md)
+* **Key Achievements:**
+  * Designed distributed PySpark Structured Streaming pipeline executing 3 independent streaming queries (`traffic_query`, `aqi_query`, `weather_query`).
+  * Enforced event-time watermarking (2 minutes) and 5-minute tumbling windows on incoming Kafka streams.
+  * Integrated static municipal enrichment via broadcast join on `data/grid_zones.csv` (5 zones).
+  * Preserved honest domain semantics: physical velocity validation, particulate concentrations, and meteorological bounds without fabricating vehicle counts or CO₂.
+  * Persisted streaming micro-batches into independent Parquet sinks (`data/feature_table/{traffic,aqi,weather}`) with checkpointed fault tolerance.
+  * Authored 14 automated unit and integration tests in `test_streaming.py` validating parsing, schema enforcement, boundary filtering, and window calculations.
+  * Validated feature table outputs using independent verifier `verify_features.py`.
+
+### Day 4: Feature Engineering & Chronological Train/Test Split
+* **Report:** [`day-04/DAY_04_FEATURE_ENGINEERING_REPORT.md`](file:///c:/Users/Tokachichu%20SriCharan/OneDrive/Documents/GitHub/urbanix/_day-notes/day-04/DAY_04_FEATURE_ENGINEERING_REPORT.md)
+* **Key Achievements:**
+  * Developed supervised target formulation pipeline in `prepare_training_data.py` using `lead('avg_speed_kmph', 1)` partitioned by `zone_id`.
+  * Built a 300-second Continuity Guard guaranteeing no false labels are assigned across telemetry gaps or outages.
+  * Formulated 9-dimensional feature vectors using `VectorAssembler` (velocity statistics, observation density, cyclic time-of-day encodings, and string-indexed zone IDs).
+  * Enforced strict estimator hygiene: fitted `StringIndexer` on the training partition only (`handleInvalid='keep'`).
+  * Implemented an 80% elapsed-time chronological cutoff ($t_{\text{cutoff}} = \text{2012-03-01 06:24:00 UTC}$, epoch $1330583040.0$).
+  * Enforced a conservative boundary policy excluding 5 boundary-crossing rows, mathematically proving zero temporal leakage: $\max(\text{train.target}) < \min(\text{test.feature})$.
+  * Resolved Py4J local host timezone string deserialization artifacts by standardizing metadata formatting to explicit UTC using Spark SQL `date_format`.
+  * Persisted model-ready Parquet partitions to `data/train/` (365 rows) and `data/test/` (100 rows) with `split_metadata.json`.
+  * Built independent split verification engine `verify_split.py` and 11 automated unit tests in `test_training_data.py` (total 44/44 tests passing across project).
 
 ---
 

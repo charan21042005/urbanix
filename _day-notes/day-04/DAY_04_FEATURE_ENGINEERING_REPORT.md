@@ -333,7 +333,7 @@ During our initial Stage B audit of `data/feature_table/traffic/`, the directory
   - `zone_3` (San Gabriel Foothills): 96 rows
   - `zone_4` (South Central Corridor): 96 rows
   - `zone_5` (Harbor & Outer Ring): 96 rows
-* **Temporal Coverage:** March 1, 2012 from `05:30:00` to `13:30:00` (8.0 hours continuous morning rush-hour progression).
+* **Temporal Coverage:** March 1, 2012 from `00:00:00 UTC` to `08:05:00 UTC` (8.08 hours contiguous progression across 96 five-minute intervals; displayed as `05:30:00` to `13:35:00` in local host IST).
 * **Key Uniqueness:** Exactly 480 distinct `(window_start, zone_id)` composite keys (zero duplicates).
 * **Speed Range:** $45.2\text{ km/h} \le v \le 112.65\text{ km/h}$ (realistic transition from midnight free-flow to morning congestion).
 
