@@ -1,120 +1,143 @@
-# 🌊 Urbanix Stream Processing & ML Forecasting Engine (`services/streaming/`)
+# 🌊 Urbanix Stream Processing & Feature Engineering Engine (`services/streaming/`)
 
-![Status](https://img.shields.io/badge/Status-Planned_(Days_3--6)-blue)
+![Status](https://img.shields.io/badge/Status-Day_3_Verified-brightgreen)
 ![Engine](https://img.shields.io/badge/Engine-Apache_Spark_3.5.1-orange)
 ![API](https://img.shields.io/badge/API-PySpark_Structured_Streaming-blue)
-![MLlib](https://img.shields.io/badge/ML-Spark_MLlib_Regressors-brightgreen)
-![Watermarking](https://img.shields.io/badge/Semantics-Event--Time_Watermarking-purple)
+![Format](https://img.shields.io/badge/Storage-Parquet_Feature_Tables-success)
+![Watermarking](https://img.shields.io/badge/Semantics-2_min_Watermark_+_5_min_Tumbling_Window-purple)
 
-This directory houses the distributed **Apache Spark Structured Streaming** engine and machine learning inference pipeline for the **Urbanix Platform**. It consumes high-velocity sensor streams from Kafka, enforces schemas, resolves out-of-order temporal joins, computes sliding window aggregations, executes ML risk forecasting, and calculates the real-time **Composite Municipal Risk Index**.
+This directory houses the distributed **Apache Spark Structured Streaming** engine for the **Urbanix Platform**. It consumes high-velocity telemetry from Kafka, enforces explicit schemas, performs physical measurement boundary validation, computes 5-minute tumbling window aggregations with an event-time watermark, joins static municipal zone metadata, and persists feature datasets into partitioned Parquet sinks with checkpointed fault tolerance.
 
 ---
 
-## 🏛️ 1. Stream Processing Pipeline Architecture
+## 🏛️ 1. Stream Processing Pipeline Architecture (Day 3 Contract)
 
 ```mermaid
 graph TD
     %% Ingestion Layer
-    subgraph "Kafka Ingestion (localhost:9092)"
-        T_KAFKA["traffic-topic"]
-        A_KAFKA["aqi-topic"]
-        W_KAFKA["weather-topic"]
+    subgraph "Kafka Message Broker (localhost:9092)"
+        T_KAFKA["traffic-topic<br>(METR-LA Speed km/h)"]
+        A_KAFKA["aqi-topic<br>(US EPA PM2.5 ug/m3)"]
+        W_KAFKA["weather-topic<br>(Ambient Temp C, Hum %)"]
     end
 
     %% Spark Structured Streaming
-    subgraph "Spark Structured Streaming Engine (apache/spark:3.5.1)"
-        SCHEMA["1. JSON Schema Enforcement<br>(from_json / StructType)"]
-        WM["2. Event-Time Watermarking<br>(10-Minute Lateness Threshold)"]
-        JOIN["3. Multi-Stream Window Join<br>(15-Minute Sliding Windows by Zone)"]
-        FEAT["4. Real-Time Feature Engineering<br>(Lag Speeds, Delta AQI, Heat Index)"]
-        ML["5. MLlib Inference Engine<br>(Congestion & AQI Regressors)"]
-        RISK["6. Composite Municipal Risk Index<br>R_zone = w1*Traffic + w2*AQI + w3*Weather"]
+    subgraph "PySpark Structured Streaming Engine (3 Independent Queries)"
+        T_STREAM["Traffic Query<br>Watermark: 2 min<br>Window: 5 min"]
+        A_STREAM["AQI Query<br>Watermark: 2 min<br>Window: 5 min"]
+        W_STREAM["Weather Query<br>Watermark: 2 min<br>Window: 5 min"]
     end
 
-    %% Sink Outputs
-    subgraph "Analytical Sinks"
-        SINK_PARQUET["Partitioned Parquet / Data Lake<br>(Checkpoint Storage)"]
-        SINK_GRAPHX["State Store for GraphX<br>(services/graphx-reroute/)"]
-        SINK_DASH["PostgreSQL / Redis<br>(dashboard/ API Gateway)"]
+    %% Static Lookup
+    subgraph "Static Enrichment"
+        ZONES["data/grid_zones.csv<br>(5 Urbanix Operational Zones)"]
     end
 
-    T_KAFKA --> SCHEMA
-    A_KAFKA --> SCHEMA
-    W_KAFKA --> SCHEMA
+    %% Sinks
+    subgraph "Parquet Feature Table Sinks (Append Mode)"
+        P_TRAFFIC["data/feature_table/traffic/<br>Checkpoint: infra/checkpoints/traffic/"]
+        P_AQI["data/feature_table/aqi/<br>Checkpoint: infra/checkpoints/aqi/"]
+        P_WEATHER["data/feature_table/weather/<br>Checkpoint: infra/checkpoints/weather/"]
+    end
 
-    SCHEMA --> WM
-    WM --> JOIN
-    JOIN --> FEAT
-    FEAT --> ML
-    ML --> RISK
+    T_KAFKA --> T_STREAM
+    A_KAFKA --> A_STREAM
+    W_KAFKA --> W_STREAM
 
-    RISK --> SINK_PARQUET
-    RISK --> SINK_GRAPHX
-    RISK --> SINK_DASH
+    ZONES --> T_STREAM
+    ZONES --> A_STREAM
+    ZONES --> W_STREAM
+
+    T_STREAM --> P_TRAFFIC
+    A_STREAM --> P_AQI
+    W_STREAM --> P_WEATHER
 ```
 
 ---
 
-## 🔬 2. Core Theoretical Concepts & Stream Mechanics
-
-### 1. Event-Time Processing & Watermarking
-IoT sensors operate over real-world wireless networks subject to packet loss, latency, and intermittent disconnects. 
-* **Event Time:** The instant the loop detector or air monitor recorded the observation in the physical world.
-* **Processing Time:** The clock time when the Spark cluster executes the task.
-* **Watermarking:** Tells Spark how long to wait for late-arriving data before finalizing a time window:
-  ```python
-  df_traffic.withWatermark("timestamp", "10 minutes")
-  ```
-  Any event arriving with a timestamp older than $\text{MaxEventTime} - 10 \text{ minutes}$ is dropped, preventing boundless memory consumption in Spark's internal state store.
-
-### 2. Multi-Stream Window Joins
-Urbanix joins three disparate asynchronous streams on `zone_id` over time-window boundaries:
-* **Tumbling Windows:** Non-overlapping fixed windows (e.g. hourly atmospheric aggregations).
-* **Sliding Windows:** Overlapping rolling windows (e.g. 15-minute windows sliding every 5 minutes to detect sudden traffic congestion waves).
-
-### 3. Resolving the Weather / Traffic Calendar Gap (Day 3 Contract)
-As documented in Day 2, historical OpenWeather records begin in October 2012 while METR-LA and EPA AQI cover March–June 2012. 
-* Spark Structured Streaming resolves this via **Pattern A (Simulation Time Normalization)** or **Pattern B (Non-Blocking Outer Joins with Baseline Defaults)**.
-* Under outer joins, if weather data is absent for an interval, the streaming engine populates safe baseline atmospheric constants ($T = 20^\circ C$, Humidity $= 50\%$) without stalling the traffic and AQI forecasting pipeline.
-
----
-
-## 🧮 3. Composite Municipal Risk Index Formula
-
-Urbanix computes a normalized risk coefficient ($R_{\text{zone}} \in [0.0, 1.0]$) for each smart-city zone every 5 minutes:
-
-$$R_{\text{zone}} = w_1 \cdot C_{\text{traffic}} + w_2 \cdot A_{\text{aqi}} + w_3 \cdot W_{\text{weather}}$$
-
-Where:
-* $C_{\text{traffic}} = 1.0 - \min\left(1.0, \frac{\text{CurrentSpeed}}{\text{FreeFlowSpeed}}\right)$ (Congestion risk)
-* $A_{\text{aqi}} = \min\left(1.0, \frac{\text{AQI}}{300.0}\right)$ (Environmental risk)
-* $W_{\text{weather}} = f(\text{Temp}, \text{Humidity})$ (Adverse weather severity factor)
-* Weights: $w_1 = 0.50$, $w_2 = 0.35$, $w_3 = 0.15$ ($\sum w_i = 1.0$).
-
----
-
-## 📂 4. Target Directory Layout (Days 3–6)
+## 📂 2. File Directory Layout
 
 ```text
 services/streaming/
-├── README.md                 # Streaming architecture and execution guide
-├── requirements.txt          # PySpark and ML runtime dependencies
-├── schemas.py                # StructType schemas for traffic, AQI, and weather JSON
-├── spark_streaming.py        # Main Spark Structured Streaming pipeline
-├── feature_engineering.py    # Window aggregations and metric transformations
-├── ml_models.py              # MLlib regressor training and inference modules
-└── risk_calculator.py        # Composite Municipal Risk Index calculation logic
+├── README.md                 # Streaming architecture, run commands, and schema documentation
+├── requirements.txt          # PySpark, pytest, and python-dotenv dependencies
+├── schemas.py                # Explicit PySpark StructType schemas for Kafka payloads & zones
+├── streaming_job.py          # Structured Streaming pipeline with 3 independent queries
+├── verify_features.py        # Parquet feature table validation & schema assertion utility
+└── tests/
+    └── test_streaming.py     # 14 deterministic tests covering parsing, windowing, and edge cases
 ```
 
 ---
 
-## 🚀 5. Execution Model
+## 🔬 3. Stream Schemas & Aggregation Semantics
 
-Spark streaming applications will submit to the standalone cluster provisioned in Day 1:
+### Traffic Telemetry (`traffic-topic` → `data/feature_table/traffic/`)
+- **Source:** Caltrans PeMS / METR-LA loop detectors on Los Angeles freeways.
+- **Physical Validation:** $0.0 < \text{speed\_kmph} \le 250.0$ (filters sensor blackouts and unphysical spikes).
+- **Aggregations:**
+  - `traffic_record_count`: count of valid sensor readings in the 5-minute window.
+  - `avg_speed_kmph`, `min_speed_kmph`, `max_speed_kmph`: velocity statistics.
+- **Honest Semantics:** Velocity observations only. No synthetic `vehicle_count` is claimed.
+
+### Air Quality Telemetry (`aqi-topic` → `data/feature_table/aqi/`)
+- **Source:** U.S. EPA AirData (AQS) monitoring stations in Los Angeles County.
+- **Physical Validation:** $0.0 \le \text{pm25} \le 1000.0$.
+- **Aggregations:**
+  - `aqi_record_count`: count of valid PM2.5 readings.
+  - `avg_pm25`, `min_pm25`, `max_pm25`: particulate matter concentrations ($\mu g/m^3$).
+  - `avg_aqi`: air quality index level.
+- **Honest Semantics:** Preserves particulate matter and AQI. No fabricated `co2` is added.
+
+### Weather Telemetry (`weather-topic` → `data/feature_table/weather/`)
+- **Source:** Historical hourly meteorological observations for Los Angeles (OpenWeatherMap).
+- **Physical Validation:** $-50.0 \le \text{temperature\_c} \le 60.0$, $0.0 \le \text{humidity\_pct} \le 100.0$.
+- **Aggregations:**
+  - `weather_record_count`: count of meteorological readings in window.
+  - `avg_temperature_c`, `min_temperature_c`, `max_temperature_c`: Celsius temperatures.
+  - `avg_humidity_pct`: relative humidity percentage.
+
+---
+
+## 🚀 4. How to Run & Verify the Pipeline
+
+### Step 1: Set up Virtual Environment & Dependencies
 ```powershell
-# Submit PySpark streaming job to local Spark Master
-docker exec spark-master /opt/spark/bin/spark-submit \
-  --master spark://spark-master:7077 \
-  --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.1 \
-  /opt/spark/work-dir/services/streaming/spark_streaming.py
+# Create dedicated virtual environment
+python -m venv services\streaming\venv
+
+# Activate and install dependencies
+.\services\streaming\venv\Scripts\Activate.ps1
+pip install -r services\streaming\requirements.txt
 ```
+
+### Step 2: Run Automated Unit & Deterministic Tests
+```powershell
+# Run the 14 streaming pipeline tests
+.\services\streaming\venv\Scripts\pytest services\streaming\tests\test_streaming.py -v
+
+# Run Day 2 producer tests to assert zero regressions
+.\services\producers\venv\Scripts\pytest services\producers\tests\test_producers.py -v
+```
+
+### Step 3: Run the Structured Streaming Pipeline
+```powershell
+# Run in continuous micro-batch streaming mode:
+.\services\streaming\venv\Scripts\python services\streaming\streaming_job.py --starting-offsets latest
+
+# OR run in bounded verification mode (processes all available Kafka records and exits cleanly):
+.\services\streaming\venv\Scripts\python services\streaming\streaming_job.py --starting-offsets earliest --available-now
+```
+
+### Step 4: Verify Generated Parquet Feature Tables
+```powershell
+# Run standalone verification assertions on generated Parquet datasets
+.\services\streaming\venv\Scripts\python services\streaming\verify_features.py
+```
+
+---
+
+## 🛡️ 5. Fault Tolerance & Checkpointing
+- **Independent Checkpoint Trees:** Each query writes state information (`commits/`, `offsets/`, `sources/`, `state/`) to its dedicated folder under `infra/checkpoints/{traffic, aqi, weather}`.
+- **Recovery Guarantees:** Spark reads partition offset state and delta state files (`HDFSBackedStateStoreProvider`) upon restart, resuming exact watermark and state progress without duplicating committed Parquet batches.
+- **Git Safety:** Checkpoints and Parquet tables are ignored in `.gitignore` to prevent repository bloat.

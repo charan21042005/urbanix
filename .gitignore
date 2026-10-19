@@ -25,9 +25,12 @@ Thumbs.db
 
 # Data & Output
 data/*.csv
+!data/grid_zones.csv
 data/*.json
 data/*.parquet
 !data/.gitkeep
+data/feature_table/
+infra/checkpoints/
 
 # Docker
 .docker/

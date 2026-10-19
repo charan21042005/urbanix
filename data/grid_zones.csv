@@ -1,0 +1,6 @@
+zone_id,zone_name,mapping_type,mapping_description,min_lat,max_lat,min_lon,max_lon
+zone_1,Downtown Core,Provisional Operational Grouping,Downtown LA Core arterial zone with EPA Site 1103 and deterministic PeMS modulo partition 1,,,,
+zone_2,San Fernando Valley,Provisional Operational Grouping,San Fernando Valley corridor with EPA Sites 1002/1201 and deterministic PeMS modulo partition 2,,,,
+zone_3,San Gabriel Foothills,Provisional Operational Grouping,East Foothills and Pasadena with EPA Sites 2005/0002 and deterministic PeMS modulo partition 3,,,,
+zone_4,South Central Corridor,Provisional Operational Grouping,South Central and Pico Rivera transit corridor with EPA Sites 1302/1602 and deterministic PeMS modulo partition 4,,,,
+zone_5,Harbor & Outer Ring,Provisional Operational Grouping,Long Beach Harbor and outer perimeter with EPA Sites 4002/4004/9033 and deterministic PeMS modulo partition 5,,,,

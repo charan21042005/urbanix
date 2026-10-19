@@ -8,7 +8,8 @@
 ![Apache Spark](https://img.shields.io/badge/Apache%20Spark-3.5.1_(UI%3A%208081)-orange?style=for-the-badge&logo=apachespark)
 ![Scala](https://img.shields.io/badge/Scala-GraphX-dc322f?style=for-the-badge&logo=scala)
 ![Docker](https://img.shields.io/badge/Docker-Compose_Cluster-2496ED?style=for-the-badge&logo=docker)
-![Milestone](https://img.shields.io/badge/Day_2-Complete_(19%2F19_Tests_Passing)-brightgreen?style=for-the-badge)
+![Milestone](https://img.shields.io/badge/Day_3-Complete_(Spark_Structured_Streaming_Verified)-brightgreen?style=for-the-badge)
+![Tests](https://img.shields.io/badge/Tests-33%2F33_Passing_(19_Prod_+_14_Stream)-brightgreen?style=for-the-badge)
 ![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)
 
 *A distributed Kafka + Spark platform for streaming urban telemetry, forecasting localized traffic and environmental risk, and supporting congestion-aware route planning.*
@@ -243,7 +244,7 @@ docker exec kafka kafka-console-consumer --bootstrap-server localhost:9092 --top
   * [ ] **Day 12:** Capstone Documentation Finalization + Academic Viva Defense
 
 ## 📊 Current Implementation Status
-**Current Phase: Transitioning from Day 2 to Day 3 (Spark Structured Streaming)**
+**Current Phase: Transitioning from Day 3 to Day 4 (Real-Time ML Risk Forecasting)**
 - [x] **Repository & Monorepo Scaffold:** Verified & clean working tree
 - [x] **Environment Isolation:** JDK 25 session-isolated; Python 3.10 virtualenv configured
 - [x] **Docker Infrastructure:** Zookeeper, Kafka, Spark Master, Spark Worker running
@@ -252,10 +253,12 @@ docker exec kafka kafka-console-consumer --bootstrap-server localhost:9092 --top
 - [x] **Data Preparation Script:** `data/prepare_data.py` verified; EPA constrained to March–June 2012 (712 rows)
 - [x] **Telemetry Producers:** Traffic, AQI, and Weather producers with Kafka delivery callbacks & retries
 - [x] **Concurrent Runner:** `run_all.py` supervisor with clean signal handling and exit codes
-- [x] **Automated Test Suite:** 19/19 tests passing in pytest (unit tests + sample integrity checks)
-- [x] **End-to-End Verification:** Live bounded replays and console consumer validations passed
-- [ ] **Spark Structured Streaming (Day 3):** Up next
-- [ ] **MLlib Risk Forecasting (Day 4):** Planned
+- [x] **Automated Test Suite (Producers):** 19/19 tests passing in pytest (unit tests + sample integrity checks)
+- [x] **End-to-End Simulation Replay:** Live bounded replays and console consumer validations passed
+- [x] **Spark Structured Streaming (Day 3):** 3 independent streaming queries, 2-min watermarks, 5-min tumbling windows, static zone joins, independent Parquet feature tables
+- [x] **Automated Test Suite (Streaming):** 14/14 tests passing in pytest (schemas, parsing, windowing, nulls)
+- [x] **End-to-End Feature Verification:** Parquet feature tables verified via `verify_features.py` (Traffic, AQI, Weather all PASS)
+- [ ] **MLlib Risk Forecasting (Day 4):** Up next
 - [ ] **GraphX Dynamic Routing (Days 5–6):** Planned
 - [ ] **Geospatial Operator Dashboard (Days 8–10):** Planned
 
@@ -263,15 +266,17 @@ docker exec kafka kafka-console-consumer --bootstrap-server localhost:9092 --top
 - [`services/`](services/README.md) - Microservices computational tier
   - [`producers/`](services/producers/README.md) - Sensor data simulation & Kafka streaming (Day 2 Complete)
     - [`tests/`](services/producers/tests/README.md) - Automated unit test suite (19 tests)
-  - [`streaming/`](services/streaming/README.md) - PySpark processing, window joins & ML forecasting (Day 3 Next)
+  - [`streaming/`](services/streaming/README.md) - PySpark Structured Streaming engine & feature tables (Day 3 Complete)
+    - [`tests/`](services/streaming/tests/) - Automated streaming test suite (14 tests)
   - [`graphx-reroute/`](services/graphx-reroute/README.md) - Scala GraphX dynamic routing engine
 - [`infra/`](infra/README.md) - Docker Compose distributed cluster (Day 1 Complete)
-- [`data/`](data/README.md) - Verified public sample datasets & reproducible preprocessing scripts
+- [`data/`](data/README.md) - Verified public sample datasets, static grid zones & preprocessing scripts
 - [`dashboard/`](dashboard/README.md) - FastAPI gateway & React/deck.gl operator command center
 - [`docs/`](docs/README.md) - Official project documentation, SRS v1.0, and academic deliverables
 - [`_day-notes/`](_day-notes/README.md) - Daily engineering journals, deep-dive reports & viva defense playbooks
   - [`day-01/`](_day-notes/day-01/DAY_01_INFRASTRUCTURE_REPORT.md) - Day 1 Infrastructure Deep-Dive Report
   - [`day-02/`](_day-notes/day-02/DAY_02_SENSOR_SIMULATION_REPORT.md) - Day 2 Sensor Simulation Deep-Dive Report
+  - [`day-03/`](_day-notes/day-03/DAY_03_STREAMING_REPORT.md) - Day 3 Structured Streaming Deep-Dive Report
 - [`.github/workflows/`](.github/workflows/README.md) - Automated CI/CD pipelines & matrix test runners
 
 ## 🎓 Learning & Engineering Philosophy
