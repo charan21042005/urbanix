@@ -30,6 +30,8 @@ data/*.json
 data/*.parquet
 !data/.gitkeep
 data/feature_table/
+data/train/
+data/test/
 infra/checkpoints/
 
 # Docker
