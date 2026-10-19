@@ -141,3 +141,27 @@ pip install -r services\streaming\requirements.txt
 - **Independent Checkpoint Trees:** Each query writes state information (`commits/`, `offsets/`, `sources/`, `state/`) to its dedicated folder under `infra/checkpoints/{traffic, aqi, weather}`.
 - **Recovery Guarantees:** Spark reads partition offset state and delta state files (`HDFSBackedStateStoreProvider`) upon restart, resuming exact watermark and state progress without duplicating committed Parquet batches.
 - **Git Safety:** Checkpoints and Parquet tables are ignored in `.gitignore` to prevent repository bloat.
+
+---
+
+## 🤖 6. Day 4: Feature Engineering & Chronological Train/Test Split
+
+Day 4 transforms the windowed traffic feature table into ML-ready, leakage-free training and testing partitions for Day 5 forecasting.
+
+### Key Pipeline Modules
+- `prepare_training_data.py`: Builds the target (`next_avg_speed_kmph`) using per-zone `lead()`, validates consecutive 300s window intervals, engineers time-of-day cyclic encodings, fits `StringIndexer` on training data only, computes an 80% chronological cutoff, excludes boundary-crossing rows, bundles features using `VectorAssembler`, and writes partitioned Parquet outputs to `data/train/` and `data/test/`.
+- `verify_split.py`: Reloads persisted Parquet datasets from disk and verifies physical existence, schema adherence, vector dimensions, target exclusion, sample disjointness, and mathematical temporal separation:
+  $$\max(\text{train.target\_window\_start}) < \min(\text{test.window\_start})$$
+- `tests/test_training_data.py`: 11 automated unit and integration tests covering label construction, boundary crossing exclusion, gap detection, duplicate handling, and zero leakage.
+
+### Execution Commands
+```powershell
+# 1. Run Day 4 feature engineering and chronological split
+.\services\streaming\venv\Scripts\python services/streaming/prepare_training_data.py
+
+# 2. Run independent reload verification
+.\services\streaming\venv\Scripts\python services/streaming/verify_split.py
+
+# 3. Run Day 4 automated unit tests
+.\services\streaming\venv\Scripts\pytest services/streaming/tests/test_training_data.py -v
+```
