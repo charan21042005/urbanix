@@ -221,8 +221,8 @@ def prepare_forecasting_dataset(
     time_bounds = featured_df.selectExpr(
         "min(unix_timestamp(window_start)) as t_min_epoch",
         "max(unix_timestamp(window_start)) as t_max_epoch",
-        "min(window_start) as t_min_ts",
-        "max(window_start) as t_max_ts",
+        "date_format(min(window_start), 'yyyy-MM-dd HH:mm:ss') as t_min_ts_utc",
+        "date_format(max(window_start), 'yyyy-MM-dd HH:mm:ss') as t_max_ts_utc",
     ).first()
 
     t_min_epoch = time_bounds["t_min_epoch"]
@@ -230,7 +230,7 @@ def prepare_forecasting_dataset(
 
     if t_min_epoch is None or t_max_epoch is None or t_min_epoch == t_max_epoch:
         raise InsufficientCoverageError(
-            f"All eligible records share identical timestamp ({time_bounds['t_min_ts']}). "
+            f"All eligible records share identical timestamp ({time_bounds['t_min_ts_utc']}). "
             "Cannot perform chronological split."
         )
 
@@ -238,7 +238,7 @@ def prepare_forecasting_dataset(
     cutoff_dt = datetime.fromtimestamp(cutoff_epoch, tz=timezone.utc)
     cutoff_str = cutoff_dt.strftime("%Y-%m-%d %H:%M:%S")
 
-    print(f"[*] Temporal Horizon (Feature Time): {time_bounds['t_min_ts']} to {time_bounds['t_max_ts']}")
+    print(f"[*] Temporal Horizon (Feature Time): {time_bounds['t_min_ts_utc']} to {time_bounds['t_max_ts_utc']} UTC")
     print(f"[*] Computed {train_ratio*100:.0f}% Chronological Cutoff: {cutoff_str} UTC (epoch {cutoff_epoch})")
 
     # -------------------------------------------------------------------------
@@ -330,22 +330,22 @@ def prepare_forecasting_dataset(
     train_time_stats = final_train.selectExpr(
         "min(unix_timestamp(window_start)) as min_feat_epoch",
         "max(unix_timestamp(target_window_start)) as max_target_epoch",
-        "min(window_start) as min_feat_ts",
-        "max(target_window_start) as max_target_ts",
+        "date_format(min(window_start), 'yyyy-MM-dd HH:mm:ss') as min_feat_ts_utc",
+        "date_format(max(target_window_start), 'yyyy-MM-dd HH:mm:ss') as max_target_ts_utc",
     ).first()
 
     test_time_stats = final_test.selectExpr(
         "min(unix_timestamp(window_start)) as min_feat_epoch",
         "max(unix_timestamp(target_window_start)) as max_target_epoch",
-        "min(window_start) as min_feat_ts",
-        "max(target_window_start) as max_target_ts",
+        "date_format(min(window_start), 'yyyy-MM-dd HH:mm:ss') as min_feat_ts_utc",
+        "date_format(max(target_window_start), 'yyyy-MM-dd HH:mm:ss') as max_target_ts_utc",
     ).first()
 
     max_train_target_epoch = train_time_stats["max_target_epoch"]
     min_test_feature_epoch = test_time_stats["min_feat_epoch"]
 
-    print(f"[*] Latest Training Target Timestamp  : {train_time_stats['max_target_ts']} (epoch {max_train_target_epoch})")
-    print(f"[*] Earliest Testing Feature Timestamp: {test_time_stats['min_feat_ts']} (epoch {min_test_feature_epoch})")
+    print(f"[*] Latest Training Target Timestamp  : {train_time_stats['max_target_ts_utc']} UTC (epoch {max_train_target_epoch})")
+    print(f"[*] Earliest Testing Feature Timestamp: {test_time_stats['min_feat_ts_utc']} UTC (epoch {min_test_feature_epoch})")
 
     # ZERO TEMPORAL LEAKAGE ASSERTIONS:
     # 1. The newest target in training must strictly precede the oldest feature in testing!
@@ -386,10 +386,14 @@ def prepare_forecasting_dataset(
         "train_row_count": final_train.count(),
         "test_row_count": final_test.count(),
         "boundary_excluded_count": boundary_excluded_count,
-        "earliest_train_feature_ts": str(train_time_stats["min_feat_ts"]),
-        "latest_train_target_ts": str(train_time_stats["max_target_ts"]),
-        "earliest_test_feature_ts": str(test_time_stats["min_feat_ts"]),
-        "latest_test_target_ts": str(test_time_stats["max_target_ts"]),
+        "earliest_train_feature_ts_utc": train_time_stats["min_feat_ts_utc"],
+        "latest_train_target_ts_utc": train_time_stats["max_target_ts_utc"],
+        "earliest_test_feature_ts_utc": test_time_stats["min_feat_ts_utc"],
+        "latest_test_target_ts_utc": test_time_stats["max_target_ts_utc"],
+        "earliest_train_feature_ts": train_time_stats["min_feat_ts_utc"],
+        "latest_train_target_ts": train_time_stats["max_target_ts_utc"],
+        "earliest_test_feature_ts": test_time_stats["min_feat_ts_utc"],
+        "latest_test_target_ts": test_time_stats["max_target_ts_utc"],
         "feature_columns": feature_cols,
         "target_column": target_col,
         "feature_timestamp_column": "window_start",

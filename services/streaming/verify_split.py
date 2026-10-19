@@ -165,15 +165,15 @@ def verify_split(
     train_bounds = train_df.selectExpr(
         "min(unix_timestamp(window_start)) as min_feat_epoch",
         "max(unix_timestamp(target_window_start)) as max_target_epoch",
-        "min(window_start) as min_feat_ts",
-        "max(target_window_start) as max_target_ts",
+        "date_format(min(window_start), 'yyyy-MM-dd HH:mm:ss') as min_feat_ts_utc",
+        "date_format(max(target_window_start), 'yyyy-MM-dd HH:mm:ss') as max_target_ts_utc",
     ).first()
 
     test_bounds = test_df.selectExpr(
         "min(unix_timestamp(window_start)) as min_feat_epoch",
         "max(unix_timestamp(target_window_start)) as max_target_epoch",
-        "min(window_start) as min_feat_ts",
-        "max(target_window_start) as max_target_ts",
+        "date_format(min(window_start), 'yyyy-MM-dd HH:mm:ss') as min_feat_ts_utc",
+        "date_format(max(target_window_start), 'yyyy-MM-dd HH:mm:ss') as max_target_ts_utc",
     ).first()
 
     max_train_target_epoch = train_bounds["max_target_epoch"]
@@ -182,8 +182,8 @@ def verify_split(
     cutoff_str = meta.get("cutoff_timestamp_utc")
 
     print(f"[*] Metadata Cutoff Timestamp         : {cutoff_str} UTC (epoch {cutoff_epoch})")
-    print(f"[*] Observed Max Train Target Time     : {train_bounds['max_target_ts']} (epoch {max_train_target_epoch})")
-    print(f"[*] Observed Min Test Feature Time     : {test_bounds['min_feat_ts']} (epoch {min_test_feature_epoch})")
+    print(f"[*] Observed Max Train Target Time     : {train_bounds['max_target_ts_utc']} UTC (epoch {max_train_target_epoch})")
+    print(f"[*] Observed Min Test Feature Time     : {test_bounds['min_feat_ts_utc']} UTC (epoch {min_test_feature_epoch})")
 
     # Leakage Assertion 1: max_train_target < min_test_feature
     if max_train_target_epoch >= min_test_feature_epoch:
@@ -195,7 +195,7 @@ def verify_split(
     else:
         print(
             f"[PASS] Zero Temporal Leakage Verified: "
-            f"max(train.target_window_start) [{train_bounds['max_target_ts']}] < min(test.window_start) [{test_bounds['min_feat_ts']}]."
+            f"max(train.target_window_start) [{train_bounds['max_target_ts_utc']} UTC] < min(test.window_start) [{test_bounds['min_feat_ts_utc']} UTC]."
         )
 
     # Leakage Assertion 2: max_train_target <= cutoff
@@ -211,6 +211,20 @@ def verify_split(
         all_passed = False
     else:
         print("[PASS] All testing features strictly occur after cutoff.")
+
+    # Leakage Assertion 4: UTC string alignment verification
+    if cutoff_str is not None:
+        if train_bounds["max_target_ts_utc"] > cutoff_str:
+            print(f"[FAIL] Training target UTC string ({train_bounds['max_target_ts_utc']}) exceeds cutoff string ({cutoff_str})!")
+            all_passed = False
+        else:
+            print(f"[PASS] Training target UTC string ({train_bounds['max_target_ts_utc']}) <= cutoff ({cutoff_str}).")
+
+        if test_bounds["min_feat_ts_utc"] <= cutoff_str:
+            print(f"[FAIL] Testing feature UTC string ({test_bounds['min_feat_ts_utc']}) precedes or equals cutoff string ({cutoff_str})!")
+            all_passed = False
+        else:
+            print(f"[PASS] Testing feature UTC string ({test_bounds['min_feat_ts_utc']}) > cutoff ({cutoff_str}).")
 
     # 8. Check Finite Numerical Bounds
     # Assert target is finite and positive

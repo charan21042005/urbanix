@@ -356,11 +356,15 @@ Therefore, our primary Day 4 traffic forecasting dataset is built strictly from 
 Instead of splitting by row count, we calculate an explicit timestamp cutoff based on the **elapsed temporal horizon** of the dataset:
 $$T_{\min} = \min(\text{window\_start}), \quad T_{\max} = \max(\text{window\_start})$$
 $$\text{Cutoff Epoch} = \text{epoch}(T_{\min}) + 0.8 \times \left( \text{epoch}(T_{\max}) - \text{epoch}(T_{\min}) \right)$$
-In our live dataset:
-- Earliest Feature Time ($T_{\min}$): `2012-03-01 05:30:00 UTC` (epoch `1330579800`)
-- Latest Feature Time ($T_{\max}$): `2012-03-01 13:30:00 UTC` (epoch `1330608600`)
+In our verified live dataset:
+- Earliest Labeled Feature Time ($T_{\min}$): `2012-03-01 00:00:00 UTC` (epoch `1330560000`)
+- Latest Labeled Feature Time ($T_{\max}$): `2012-03-01 08:00:00 UTC` (epoch `1330588800`)
 - Elapsed Duration: $28,800\text{ seconds}$ ($8.0\text{ hours}$)
-- 80% Cutoff: $\text{Cutoff Epoch} = 1330579800 + 0.8 \times 28800 = 1330583040.0$ (`2012-03-01 06:24:00 UTC`)
+- 80% Cutoff: $\text{Cutoff Epoch} = 1330560000 + 0.8 \times 28800 = 1330583040.0$ (`2012-03-01 06:24:00 UTC`)
+
+> [!NOTE]
+> **Source Feature Table vs. Supervised Horizon:**
+> The raw Day 3 traffic table (`data/feature_table/traffic`) spans `2012-03-01 00:00:00 UTC` to `2012-03-01 08:05:00 UTC` (480 rows). However, constructing a future target $y_{t+1}$ requires a consecutive subsequent window at $t + 300\text{s}$. The final 5-minute window (`08:05:00 UTC`) has no future successor (`lead() == NULL`), so the latest usable feature window $T_{\max}$ is `2012-03-01 08:00:00 UTC`.
 
 ### 7.2 The Conservative Boundary Policy & Boundary-Crossing Exclusion
 1. **Training Set Rule:** All training examples must have their **target timestamp** at or before the cutoff:
@@ -368,17 +372,21 @@ In our live dataset:
 2. **Testing Set Rule:** All testing examples must have their **feature timestamp** strictly after the cutoff:
    $$\text{Test} = \{ x \mid \text{window\_start} > \text{Cutoff} \}$$
 3. **Boundary-Crossing Exclusion:** Any observation where $\text{window\_start} \le \text{Cutoff}$ but $\text{target\_window\_start} > \text{Cutoff}$ is **strictly excluded**.
-   In our live dataset, exactly **5 boundary-crossing rows** (one per zone) were identified and discarded.
+   In our live dataset, exactly **5 boundary-crossing rows** (one per zone at feature time `06:20:00 UTC` predicting target `06:25:00 UTC`) were identified and discarded.
 
 ### 7.3 Mathematical Proof of Zero Temporal Leakage
 $$\forall x \in \text{Train}, \quad \text{target\_window\_start}(x) \le \text{Cutoff}$$
 $$\forall x \in \text{Test}, \quad \text{window\_start}(x) > \text{Cutoff}$$
 $$\implies \max_{x \in \text{Train}}(\text{target\_window\_start}(x)) \le \text{Cutoff} < \min_{x \in \text{Test}}(\text{window\_start}(x))$$
-In our live verified run:
-- $\max(\text{train.target}) = 1330582800$ (`2012-03-01 11:50:00`)
+In our verified persisted Parquet outputs:
+- $\max(\text{train.target}) = 1330582800$ (`2012-03-01 06:20:00 UTC`)
 - $\text{Cutoff} = 1330583040$ (`2012-03-01 06:24:00 UTC`)
-- $\min(\text{test.feature}) = 1330583100$ (`2012-03-01 11:55:00`)
-$$\max(\text{train.target}) < \min(\text{test.feature}) \implies \text{Zero Temporal Overlap}$$
+- $\min(\text{test.feature}) = 1330583100$ (`2012-03-01 06:25:00 UTC`)
+$$\max(\text{train.target}) < \text{Cutoff} < \min(\text{test.feature}) \implies \text{Zero Temporal Overlap}$$
+
+> [!IMPORTANT]
+> **Resolution of Py4J Timezone Artifact:**
+> In early inspection logs, `11:50:00` and `11:55:00` appeared alongside `06:24:00 UTC`. This was a cosmetic serialization artifact of Py4J: when PySpark extracts a Java SQL `TimestampType` into a Python `Row`, Python deserializes it using the host machine's local system timezone (Indian Standard Time, UTC+05:30). `06:20:00 UTC + 05:30 = 11:50:00 IST`, and `06:25:00 UTC + 05:30 = 11:55:00 IST`. The underlying epoch seconds ($1330582800 \le 1330583040 < 1330583100$) have always strictly satisfied zero leakage. The pipeline explicitly enforces `date_format(..., 'yyyy-MM-dd HH:mm:ss')` directly in Spark SQL, ensuring all metadata strings are strictly in UTC.
 
 ---
 
@@ -579,22 +587,21 @@ During Day 4 implementation on Windows 11 with PySpark 3.5.1, three distributed 
 * **Root Cause:** PySpark's core SQL engine does not require NumPy, but its machine learning module (`pyspark.ml.linalg`, `VectorAssembler`, `DenseVector`) depends on NumPy C-bindings for vectorized array operations.
 * **Resolution:** Installed `numpy-2.2.6` in `services/streaming/venv` and appended `numpy>=1.24.0` to `services/streaming/requirements.txt`.
 
-### Case Study 2: Offset-Naive vs. Offset-Aware Datetime Collision
-* **Symptom:** During boundary assertions, Python threw:
-  ```text
-  TypeError: can't compare offset-naive and offset-aware datetimes
-    at prepare_training_data.py:352
-  ```
-* **Root Cause:** `datetime.fromtimestamp(cutoff_epoch, tz=timezone.utc)` produced an **offset-aware** datetime object. Meanwhile, Spark SQL's Py4J gateway converts `TimestampType` to Python `datetime` objects that are **offset-naive** (lacking a `tzinfo` attribute). Python forbids comparing naive and aware datetimes.
-* **Resolution:** Refactored all time boundary filtering and assertions to evaluate **epoch seconds** via Spark SQL's native `unix_timestamp()` function:
-  ```python
-  max_train_target_epoch = final_train.selectExpr("max(unix_timestamp(target_window_start))").first()[0]
-  min_test_feature_epoch = final_test.selectExpr("min(unix_timestamp(window_start))").first()[0]
-  assert max_train_target_epoch < min_test_feature_epoch
-  assert max_train_target_epoch <= cutoff_epoch
-  assert min_test_feature_epoch > cutoff_epoch
-  ```
-  Comparing integer epoch seconds provides 100% mathematical immunity to local host timezones, Daylight Savings Time (DST) shifts, and Py4J deserialization offsets.
+### Case Study 2: Offset-Naive vs. Offset-Aware Datetime Collision & Py4J Timezone Standardization
+* **Symptom:** During early boundary assertions, Python threw `TypeError: can't compare offset-naive and offset-aware datetimes`. Furthermore, early metadata exports displayed timestamps in local host time (IST, `11:50:00`) alongside UTC cutoff (`06:24:00 UTC`), creating an apparent visual mismatch.
+* **Root Cause:**
+  1. `datetime.fromtimestamp(cutoff_epoch, tz=timezone.utc)` produced an **offset-aware** datetime object, while Spark SQL's Py4J gateway converts `TimestampType` to Python `datetime` objects that are **offset-naive**.
+  2. When converting Spark `TimestampType` to string via Python `str(row["max_target_ts"])`, Py4J deserialized Java SQL timestamps into the Windows host's local system timezone (Indian Standard Time, UTC+05:30), shifting `06:20:00 UTC` by +5h30m to `11:50:00 IST`.
+* **Resolution:**
+  1. Refactored all time boundary filtering and assertions to evaluate **epoch seconds** via Spark SQL's native `unix_timestamp()` function:
+     ```python
+     max_train_target_epoch = final_train.selectExpr("max(unix_timestamp(target_window_start))").first()[0]
+     min_test_feature_epoch = final_test.selectExpr("min(unix_timestamp(window_start))").first()[0]
+     assert max_train_target_epoch < min_test_feature_epoch
+     assert max_train_target_epoch <= cutoff_epoch
+     assert min_test_feature_epoch > cutoff_epoch
+     ```
+  2. Refactored all string representations in `prepare_training_data.py` and `verify_split.py` to format timestamps directly inside Spark SQL via `date_format(col(...), 'yyyy-MM-dd HH:mm:ss')`, enforcing deterministic UTC formatting immune to host machine timezone settings.
 
 ### Case Study 3: The 5-Row Insufficient Coverage Discovery
 * **Symptom:** Initial execution of `prepare_training_data.py` halted with:
@@ -623,13 +630,13 @@ URBANIX DAY 4: FEATURE ENGINEERING & CHRONOLOGICAL SPLIT PIPELINE
 [*] Train/Test ratio    : 80.0% / 20.0%
 [*] Raw feature table row count: 480
 [*] Valid labeled examples after continuity filtering: 470
-[*] Temporal Horizon (Feature Time): 2012-03-01 05:30:00 to 2012-03-01 13:30:00
+[*] Temporal Horizon (Feature Time): 2012-03-01 00:00:00 to 2012-03-01 08:00:00 UTC
 [*] Computed 80% Chronological Cutoff: 2012-03-01 06:24:00 UTC (epoch 1330583040.0)
 [*] Boundary-crossing examples excluded: 5
 [*] Training candidate rows             : 365
 [*] Testing candidate rows              : 100
-[*] Latest Training Target Timestamp  : 2012-03-01 11:50:00 (epoch 1330582800)
-[*] Earliest Testing Feature Timestamp: 2012-03-01 11:55:00 (epoch 1330583100)
+[*] Latest Training Target Timestamp  : 2012-03-01 06:20:00 UTC (epoch 1330582800)
+[*] Earliest Testing Feature Timestamp: 2012-03-01 06:25:00 UTC (epoch 1330583100)
 [PASS] Zero Temporal Leakage Verified: max(train.target) < min(test.feature)!
 [*] Successfully saved split metadata to data/split_metadata.json
 [SUCCESS] Day 4 Dataset Preparation Complete!
@@ -659,11 +666,13 @@ URBANIX DAY 4: INDEPENDENT CHRONOLOGICAL SPLIT VERIFICATION
 [PASS] Zero duplicate keys within testing partition.
 [PASS] Zero key overlap: Train and test samples are mutually disjoint.
 [*] Metadata Cutoff Timestamp         : 2012-03-01 06:24:00 UTC (epoch 1330583040.0)
-[*] Observed Max Train Target Time     : 2012-03-01 11:50:00 (epoch 1330582800)
-[*] Observed Min Test Feature Time     : 2012-03-01 11:55:00 (epoch 1330583100)
-[PASS] Zero Temporal Leakage Verified: max(train.target_window_start) [2012-03-01 11:50:00] < min(test.window_start) [2012-03-01 11:55:00].
+[*] Observed Max Train Target Time     : 2012-03-01 06:20:00 UTC (epoch 1330582800)
+[*] Observed Min Test Feature Time     : 2012-03-01 06:25:00 UTC (epoch 1330583100)
+[PASS] Zero Temporal Leakage Verified: max(train.target_window_start) [2012-03-01 06:20:00 UTC] < min(test.window_start) [2012-03-01 06:25:00 UTC].
 [PASS] All training targets strictly occur at or before cutoff.
 [PASS] All testing features strictly occur after cutoff.
+[PASS] Training target UTC string (2012-03-01 06:20:00) <= cutoff (2012-03-01 06:24:00).
+[PASS] Testing feature UTC string (2012-03-01 06:25:00) > cutoff (2012-03-01 06:24:00).
 [PASS] All target speeds are finite, positive, and within physical bounds (0 < v <= 250 km/h).
 ======================================================================
 FINAL VERIFICATION RESULT: [ALL CHECKS PASSED]
@@ -760,7 +769,7 @@ services/streaming/tests/test_training_data.py::test_deterministic_split PASSED 
 
 #### Q16: *"State the mathematical proof that your split contains zero temporal leakage."*
 * **Defense:**  
-  *"In our persisted splits: $\max_{x \in \text{Train}}(\text{target\_window\_start}(x)) = 1330582800 < 1330583040 (\text{Cutoff}) < 1330583100 = \min_{x \in \text{Test}}(\text{window\_start}(x))$. Because the newest training ground truth strictly precedes the oldest testing feature by 300 seconds, zero temporal leakage is mathematically proven."*
+  *"In our persisted splits: $\max_{x \in \text{Train}}(\text{target\_window\_start}(x)) = \text{2012-03-01 06:20:00 UTC (epoch } 1330582800) \le \text{2012-03-01 06:24:00 UTC (Cutoff epoch } 1330583040.0) < \text{2012-03-01 06:25:00 UTC (epoch } 1330583100) = \min_{x \in \text{Test}}(\text{window\_start}(x))$. Because the newest training ground truth strictly precedes the oldest testing feature by 300 seconds, zero temporal leakage is mathematically proven."*
 
 #### Q17: *"Why did you fit `StringIndexer` on the training partition only?"*
 * **Defense:**  
