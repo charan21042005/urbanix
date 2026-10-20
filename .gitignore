@@ -29,13 +29,24 @@ data/*.csv
 data/*.json
 data/*.parquet
 !data/.gitkeep
-data/feature_table/
+data/feature_table/**/*.parquet
+data/feature_table/**/.*
+data/feature_table/**/_SUCCESS
+data/feature_table/**/_spark_metadata/
 data/train/
 data/test/
-infra/checkpoints/
+infra/checkpoints/**/offsets/
+infra/checkpoints/**/commits/
+infra/checkpoints/**/metadata*
+infra/checkpoints/**/sources/
+infra/checkpoints/**/state/
+infra/checkpoints/**/.*
 
 # MLlib Models (reproducible via python services/streaming/train_evaluate.py)
-models/*
+models/*/data/
+models/*/metadata/
+!models/**/README.md
+!models/README.md
 !models/.gitkeep
 
 # Docker

@@ -280,9 +280,14 @@ python -m venv services\streaming\venv
     - [`tests/`](services/streaming/tests/) - Automated streaming, feature, and ML test suites (34 tests)
   - [`graphx-reroute/`](services/graphx-reroute/README.md) - Scala GraphX dynamic routing engine
 - [`infra/`](infra/README.md) - Docker Compose distributed cluster (Day 1 Complete)
+  - [`checkpoints/`](infra/checkpoints/README.md) - Streaming query state stores & Write-Ahead Logs
 - [`data/`](data/README.md) - Verified public sample datasets, static grid zones & preprocessing scripts
-- [`models/`](models/.gitkeep) - Apache Spark MLlib native model persistence directories (Day 5 Complete)
-- [`reports/`](reports/day-05/results.md) - Machine-readable evaluation manifests & audit reports (Day 5 Complete)
+  - [`feature_table/`](data/feature_table/README.md) - Streaming feature tables (traffic, AQI, weather)
+- [`models/`](models/README.md) - Apache Spark MLlib native model persistence registry (Day 5 Complete)
+  - [`linear_regression/`](models/linear_regression/README.md) - Linear Regression Model ($R^2 = 0.7757$)
+  - [`decision_tree/`](models/decision_tree/README.md) - Decision Tree Regressor Model
+- [`reports/`](reports/README.md) - Machine-readable evaluation manifests & audit reports (Day 5 Complete)
+  - [`day-05/`](reports/day-05/README.md) - Day 5 metrics manifest, per-zone tables & verification checklist
 - [`dashboard/`](dashboard/README.md) - FastAPI gateway & React/deck.gl operator command center
 - [`docs/`](docs/README.md) - Official project documentation, SRS v1.0, and academic deliverables
 - [`_day-notes/`](_day-notes/README.md) - Daily engineering journals, deep-dive reports & viva defense playbooks
