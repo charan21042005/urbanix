@@ -17,10 +17,9 @@ Comprehensive unit and integration tests verifying:
 
 import os
 import sys
-import shutil
 import tempfile
 from pathlib import Path
-from datetime import datetime, timezone
+from datetime import datetime
 import pytest
 
 # Ensure worker subprocesses use driver Python
@@ -40,8 +39,6 @@ from pyspark.sql.types import (
     StructType,
     StructField,
     StringType,
-    DoubleType,
-    LongType,
     TimestampType,
 )
 from pyspark.ml.linalg import VectorUDT
@@ -53,7 +50,6 @@ from streaming_inference import (
     predict_traffic_speed,
     make_traffic_batch_processor,
     INFERENCE_FEATURE_COLS,
-    ZONE_INDEX_MAPPING,
 )
 
 
@@ -97,7 +93,7 @@ def sample_windowed_traffic(spark):
 # UNIT TESTS: Model Deserialization & Schema Validation
 # =============================================================================
 
-def test_load_forecasting_model_success(spark):
+def test_load_forecasting_model_success():
     """Verifies that the canonical Day 5 Linear Regression model loads and has 9 features."""
     model_path = os.path.join(project_root, "models", "linear_regression")
     assert os.path.exists(model_path), f"Missing model directory at {model_path}"
