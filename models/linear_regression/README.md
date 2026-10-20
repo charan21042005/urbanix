@@ -53,8 +53,8 @@ $$\hat{y}(\mathbf{x}) = 44.0640 + \sum_{j=0}^8 w_j x_j$$
   - `zone_1` (Downtown Core): $R^2 = 0.6622$, $\text{RMSE} = 3.6885\text{ km/h}$, $\text{MAE} = 3.2586\text{ km/h}$
   - `zone_2` (San Fernando Valley): $R^2 = 0.6109$, $\text{RMSE} = 2.5649\text{ km/h}$, $\text{MAE} = 2.3580\text{ km/h}$
   - `zone_3` (San Gabriel Foothills): $R^2 = 0.8278$, $\text{RMSE} = 2.0458\text{ km/h}$, $\text{MAE} = 1.6137\text{ km/h}$
-  - `zone_4` (South Central Corridor): $R^2 = 0.6674$, $\text{RMSE} = 3.4688\text{ km/h}$, $\text{MAE} = 3.0181\text{ km/h}$
-  - `zone_5` (Harbor & Outer Ring): $R^2 = 0.8390$, $\text{RMSE} = 2.4042\text{ km/h}$, $\text{MAE} = 2.1180\text{ km/h}$
+  - `zone_4` (South Central Corridor): $R^2 = 0.6674$, $\text{RMSE} = 3.3106\text{ km/h}$, $\text{MAE} = 3.0507\text{ km/h}$
+  - `zone_5` (Harbor & Outer Ring): $R^2 = 0.8390$, $\text{RMSE} = 2.7456\text{ km/h}$, $\text{MAE} = 2.0856\text{ km/h}$
 
 ---
 

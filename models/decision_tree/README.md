@@ -46,6 +46,12 @@ cos_hour            : 0.0000 ( 0.00%) - Unused in optimal partition
   - **$R^2$:** `-0.2064` (Roadmap milestone $R^2 > 0.75$: **FAILED**)
   - **RMSE:** `6.7904 km/h`
   - **MAE:** `5.1781 km/h`
+- **Per-Zone Evaluation Breakdown ($n=20$ per zone):**
+  - `zone_1` (Downtown Core): $R^2 = -0.7874$, $\text{RMSE} = 8.4841\text{ km/h}$, $\text{MAE} = 6.8355\text{ km/h}$
+  - `zone_2` (San Fernando Valley): $R^2 = -0.2892$, $\text{RMSE} = 4.6686\text{ km/h}$, $\text{MAE} = 3.9805\text{ km/h}$
+  - `zone_3` (San Gabriel Foothills): $R^2 = +0.3422$, $\text{RMSE} = 3.9982\text{ km/h}$, $\text{MAE} = 3.1002\text{ km/h}$
+  - `zone_4` (South Central Corridor): $R^2 = -1.4896$, $\text{RMSE} = 9.0579\text{ km/h}$, $\text{MAE} = 7.3130\text{ km/h}$
+  - `zone_5` (Harbor & Outer Ring): $R^2 = +0.1726$, $\text{RMSE} = 6.2241\text{ km/h}$, $\text{MAE} = 4.6612\text{ km/h}$
 
 ### Why Did the Tree Produce Negative $R^2$?
 Decision trees are **piecewise constant estimators**. Their predictions are strictly bounded by the minimum and maximum label values observed in the training leaves ($\min y_{\text{train}} \le \hat{y} \le \max y_{\text{train}}$) and have zero gradient ($\nabla_{\mathbf{x}} \hat{y} = \mathbf{0}$).

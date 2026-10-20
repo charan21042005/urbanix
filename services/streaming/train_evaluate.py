@@ -361,10 +361,18 @@ def train_and_evaluate_models(
         Path(lr_model_path).parent.mkdir(parents=True, exist_ok=True)
         Path(dt_model_path).parent.mkdir(parents=True, exist_ok=True)
 
+        lr_readme = Path(lr_model_path) / "README.md"
+        lr_readme_content = lr_readme.read_text(encoding="utf-8") if lr_readme.exists() else None
         lr_model.write().overwrite().save(lr_model_path)
+        if lr_readme_content is not None:
+            lr_readme.write_text(lr_readme_content, encoding="utf-8")
         print(f"[+] Persisted LinearRegressionModel to: {lr_model_path}")
 
+        dt_readme = Path(dt_model_path) / "README.md"
+        dt_readme_content = dt_readme.read_text(encoding="utf-8") if dt_readme.exists() else None
         dt_model.write().overwrite().save(dt_model_path)
+        if dt_readme_content is not None:
+            dt_readme.write_text(dt_readme_content, encoding="utf-8")
         print(f"[+] Persisted DecisionTreeRegressionModel to: {dt_model_path}")
 
         # -------------------------------------------------------------
