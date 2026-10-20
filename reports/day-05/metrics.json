@@ -1,0 +1,150 @@
+{
+  "evaluation_timestamp_utc": "2026-10-20T09:50:54.437800+00:00",
+  "provenance": {
+    "training_path": "data/train",
+    "testing_path": "data/test",
+    "training_rows": 365,
+    "testing_rows": 100,
+    "feature_dimension": 9,
+    "feature_names": [
+      "avg_speed_kmph",
+      "speed_spread_kmph",
+      "min_speed_kmph",
+      "max_speed_kmph",
+      "reading_count",
+      "sin_hour",
+      "cos_hour",
+      "zone_index",
+      "speed_lag_1"
+    ],
+    "target_column": "next_avg_speed_kmph",
+    "success_threshold": "r2 > 0.75"
+  },
+  "models": {
+    "linear_regression": {
+      "model_type": "pyspark.ml.regression.LinearRegression",
+      "save_path": "models/linear_regression",
+      "hyperparameters": {
+        "regParam": 0.0,
+        "elasticNetParam": 0.0,
+        "fitIntercept": true,
+        "standardization": true
+      },
+      "learned_parameters": {
+        "intercept": 44.064,
+        "coefficients": {
+          "avg_speed_kmph": 0.7591,
+          "speed_spread_kmph": 0.0117,
+          "min_speed_kmph": -0.1205,
+          "max_speed_kmph": -0.0129,
+          "reading_count": 0.0177,
+          "sin_hour": -1.988,
+          "cos_hour": 4.4857,
+          "zone_index": -7.4699,
+          "speed_lag_1": -0.179
+        }
+      },
+      "aggregate_metrics": {
+        "r2": 0.7757,
+        "rmse": 2.928,
+        "mae": 2.4733,
+        "count": 100
+      },
+      "per_zone_metrics": {
+        "zone_1": {
+          "r2": 0.6622,
+          "rmse": 3.6885,
+          "mae": 3.2586,
+          "count": 20
+        },
+        "zone_2": {
+          "r2": 0.6109,
+          "rmse": 2.5649,
+          "mae": 2.358,
+          "count": 20
+        },
+        "zone_3": {
+          "r2": 0.8278,
+          "rmse": 2.0458,
+          "mae": 1.6137,
+          "count": 20
+        },
+        "zone_4": {
+          "r2": 0.6674,
+          "rmse": 3.3106,
+          "mae": 3.0507,
+          "count": 20
+        },
+        "zone_5": {
+          "r2": 0.839,
+          "rmse": 2.7456,
+          "mae": 2.0856,
+          "count": 20
+        }
+      },
+      "threshold_met": true
+    },
+    "decision_tree": {
+      "model_type": "pyspark.ml.regression.DecisionTreeRegressor",
+      "save_path": "models/decision_tree",
+      "hyperparameters": {
+        "maxDepth": 8,
+        "seed": 42
+      },
+      "learned_parameters": {
+        "tree_depth": 8,
+        "num_nodes": 307,
+        "feature_importances": {
+          "avg_speed_kmph": 0.8704,
+          "speed_spread_kmph": 0.0222,
+          "min_speed_kmph": 0.0361,
+          "max_speed_kmph": 0.0251,
+          "reading_count": 0.0239,
+          "sin_hour": 0.0068,
+          "cos_hour": 0.0,
+          "zone_index": 0.0107,
+          "speed_lag_1": 0.0047
+        }
+      },
+      "aggregate_metrics": {
+        "r2": -0.2064,
+        "rmse": 6.7904,
+        "mae": 5.1781,
+        "count": 100
+      },
+      "per_zone_metrics": {
+        "zone_1": {
+          "r2": -0.7874,
+          "rmse": 8.4841,
+          "mae": 6.8355,
+          "count": 20
+        },
+        "zone_2": {
+          "r2": -0.2892,
+          "rmse": 4.6686,
+          "mae": 3.9805,
+          "count": 20
+        },
+        "zone_3": {
+          "r2": 0.3422,
+          "rmse": 3.9982,
+          "mae": 3.1002,
+          "count": 20
+        },
+        "zone_4": {
+          "r2": -1.4896,
+          "rmse": 9.0579,
+          "mae": 7.313,
+          "count": 20
+        },
+        "zone_5": {
+          "r2": 0.1726,
+          "rmse": 6.2241,
+          "mae": 4.6612,
+          "count": 20
+        }
+      },
+      "threshold_met": false
+    }
+  }
+}
