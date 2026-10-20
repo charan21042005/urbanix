@@ -1,12 +1,13 @@
 # 📅 Urbanix Daily Engineering Journal & Milestone Tracker (`_day-notes/`)
 
-![Roadmap Progress](https://img.shields.io/badge/Progress-Day_5_of_12_Complete_(41.7%25)-brightgreen)
+![Roadmap Progress](https://img.shields.io/badge/Progress-Day_6_of_12_Complete_(50.0%25)-brightgreen)
 ![Day 1 Status](https://img.shields.io/badge/Day_1-Verified_&_Closed-brightgreen)
 ![Day 2 Status](https://img.shields.io/badge/Day_2-Verified_&_Closed-brightgreen)
 ![Day 3 Status](https://img.shields.io/badge/Day_3-Verified_&_Closed-brightgreen)
 ![Day 4 Status](https://img.shields.io/badge/Day_4-Verified_&_Closed-brightgreen)
 ![Day 5 Status](https://img.shields.io/badge/Day_5-Verified_&_Closed-brightgreen)
-![Day 6 Status](https://img.shields.io/badge/Day_6-Active_Next-blue)
+![Day 6 Status](https://img.shields.io/badge/Day_6-Verified_&_Closed-brightgreen)
+![Day 7 Status](https://img.shields.io/badge/Day_7-Active_Next-blue)
 
 > [!WARNING]
 > **DEVELOPMENT & VIVA ARTIFACT NOTICE**
@@ -26,17 +27,17 @@ graph TD
     end
 
     %% Phase 2: Distributed Analytics & Graph Engine
-    subgraph P2["<b>PHASE 2: Distributed Analytics & Graph Engine (Days 3–6)</b> — [IN PROGRESS]"]
+    subgraph P2["<b>PHASE 2: Distributed Analytics & Graph Engine (Days 3–6)</b> — [100% COMPLETE]"]
         D3["<b>Day 3: Spark Structured Streaming Engine</b><br>Kafka Ingestion • Watermarking • Multi-Stream Window Joins<br><b>Status: COMPLETE</b>"]
         D4["<b>Day 4: Feature Engineering & Chronological Split</b><br>Spark MLlib • VectorAssembler • Zero-Leakage Split<br><b>Status: COMPLETE</b>"]
         D5["<b>Day 5: MLlib Regressor Training & Evaluation</b><br>Linear Regression • Decision Tree • RMSE / R2 Evaluation<br><b>Status: COMPLETE</b>"]
-        D6["<b>Day 6: Live MLlib Streaming Inference & Checkpoints</b><br>Model Deserialization • Real-Time Predictions • Alerting<br><b>Status: ACTIVE NEXT</b>"]
+        D6["<b>Day 6: Live MLlib Streaming Inference & Checkpoints</b><br>Model Deserialization • Real-Time Predictions • Crash Recovery<br><b>Status: COMPLETE</b>"]
         D3 --> D4 --> D5 --> D6
     end
 
     %% Phase 3: Analytical Sinks & Operator Dashboard
-    subgraph P3["<b>PHASE 3: Analytical Sinks & Operator Dashboard (Days 7–10)</b> — [PLANNED]"]
-        D7["<b>Day 7: Scala GraphX Rerouting & Analytical Sinks</b><br>Dijkstra • Dynamic Edge Weights • Parquet Data Lake<br><b>Status: PLANNED</b>"]
+    subgraph P3["<b>PHASE 3: Analytical Sinks & Operator Dashboard (Days 7–10)</b> — [IN PROGRESS]"]
+        D7["<b>Day 7: Scala GraphX Rerouting & Analytical Sinks</b><br>Dijkstra • Dynamic Edge Weights • Parquet Data Lake<br><b>Status: ACTIVE NEXT</b>"]
         D8["<b>Day 8: API Gateway & WebSocket Server</b><br>FastAPI Async Server • Real-Time Telemetry WebSockets<br><b>Status: PLANNED</b>"]
         D9["<b>Day 9: Geospatial Dashboard Core</b><br>React 18 • Vite • MapLibre GL • deck.gl 3D Hex Heatmaps<br><b>Status: PLANNED</b>"]
         D10["<b>Day 10: Interactive Operator Dashboard</b><br>Route Comparator • Live Gauges • Recharts Time-Series<br><b>Status: PLANNED</b>"]
@@ -61,8 +62,8 @@ graph TD
     style D3 fill:#d4edda,stroke:#28a745,stroke-width:2px,color:#155724
     style D4 fill:#d4edda,stroke:#28a745,stroke-width:2px,color:#155724
     style D5 fill:#d4edda,stroke:#28a745,stroke-width:2px,color:#155724
-    style D6 fill:#cce5ff,stroke:#007bff,stroke-width:2px,color:#004085
-    style D7 fill:#f8f9fa,stroke:#6c757d,stroke-width:1px,color:#212529
+    style D6 fill:#d4edda,stroke:#28a745,stroke-width:2px,color:#155724
+    style D7 fill:#cce5ff,stroke:#007bff,stroke-width:2px,color:#004085
     style D8 fill:#f8f9fa,stroke:#6c757d,stroke-width:1px,color:#212529
     style D9 fill:#f8f9fa,stroke:#6c757d,stroke-width:1px,color:#212529
     style D10 fill:#f8f9fa,stroke:#6c757d,stroke-width:1px,color:#212529
@@ -72,12 +73,12 @@ graph TD
 
 ### 🛣️ Visual Phase-by-Phase Timeline
 ```text
-Phase 1: Foundation (COMPLETE)        Phase 2: Analytics & Models (IN PROGRESS)   Phase 3: Sinks & Dashboard (PLANNED)        Phase 4: Finalization
+Phase 1: Foundation (COMPLETE)        Phase 2: Analytics & Models (COMPLETE)      Phase 3: Sinks & Dashboard (IN PROGRESS)    Phase 4: Finalization
 ┌──────────────────────────────────┐  ┌────────────────────────────────────────┐  ┌────────────────────────────────────────┐  ┌───────────────────────────────┐
-│ [Day 01] Docker & Spark Cluster✅│  │ [Day 03] Spark Structured Streaming ✅ │  │ [Day 07] GraphX & Parquet Lake       📅 │  │ [Day 11] E2E Stress Testing 📅 │
+│ [Day 01] Docker & Spark Cluster✅│  │ [Day 03] Spark Structured Streaming ✅ │  │ [Day 07] GraphX & Dynamic Weights    ⏳ │  │ [Day 11] E2E Stress Testing 📅 │
 │ [Day 02] Sensors & Kafka Replay✅│──▶ [Day 04] Feature Eng & Split Pipeline ✅│──▶ [Day 08] FastAPI & WebSockets       📅 │─▶│ [Day 12] Capstone Defense   📅 │
 └──────────────────────────────────┘  │ [Day 05] MLlib Model Training & Eval ✅│  │ [Day 09] React & deck.gl 3D Maps    📅 │  └───────────────────────────────┘
-                                      │ [Day 06] Live Streaming Inference    ⏳ │  │ [Day 10] Operator Command Console   📅 │
+                                      │ [Day 06] Live Streaming Inference    ✅ │  │ [Day 10] Operator Command Console   📅 │
                                       └────────────────────────────────────────┘  └────────────────────────────────────────┘
 ```
 
@@ -88,8 +89,8 @@ Phase 1: Foundation (COMPLETE)        Phase 2: Analytics & Models (IN PROGRESS) 
 | **03** | **Spark Structured Streaming Engine** | PySpark 3.5.1, Kafka Connector, Watermarking, Independent Parquet Feature Tables | **COMPLETE ✅** | [`day-03/DAY_03_STREAMING_REPORT.md`](file:///c:/Users/Tokachichu%20SriCharan/OneDrive/Documents/GitHub/urbanix/_day-notes/day-03/DAY_03_STREAMING_REPORT.md) |
 | **04** | **Feature Engineering & Chronological Split** | Spark MLlib, VectorAssembler, StringIndexer, Zero-Leakage Split | **COMPLETE ✅** | [`day-04/DAY_04_FEATURE_ENGINEERING_REPORT.md`](file:///c:/Users/Tokachichu%20SriCharan/OneDrive/Documents/GitHub/urbanix/_day-notes/day-04/DAY_04_FEATURE_ENGINEERING_REPORT.md) |
 | **05** | **MLlib Regression & Forecasting Evaluation** | Spark MLlib, Linear Regression, Decision Tree Regressor, Evaluator | **COMPLETE ✅** | [`day-05/DAY_05_ML_FORECASTING_REPORT.md`](file:///c:/Users/Tokachichu%20SriCharan/OneDrive/Documents/GitHub/urbanix/_day-notes/day-05/DAY_05_ML_FORECASTING_REPORT.md) |
-| **06** | **Live MLlib Streaming Inference & Checkpoints** | Spark Structured Streaming, MLlib Deserialization, Live Forecasting | **ACTIVE NEXT ⏳** | *Planned: `day-06/DAY_06_INFERENCE_REPORT.md`* |
-| **07** | **Data Storage Layer & Analytical Sinks** | Partitioned Parquet, Data Lake Checkpointing, PostgreSQL Sinks | **PLANNED 📅** | *Planned: `day-07/DAY_07_STORAGE_SINKS_REPORT.md`* |
+| **06** | **Live MLlib Streaming Inference & Checkpoints** | Spark Structured Streaming, MLlib Deserialization, Live Forecasting, Crash Recovery | **COMPLETE ✅** | [`day-06/DAY_06_LIVE_INFERENCE_REPORT.md`](file:///c:/Users/Tokachichu%20SriCharan/OneDrive/Documents/GitHub/urbanix/_day-notes/day-06/DAY_06_LIVE_INFERENCE_REPORT.md) |
+| **07** | **Data Storage Layer & Analytical Sinks** | Scala 2.12, Spark GraphX, Dijkstra Rerouting, Partitioned Parquet Sinks | **ACTIVE NEXT ⏳** | *Planned: `day-07/DAY_07_STORAGE_SINKS_REPORT.md`* |
 | **08** | **API Gateway & Telemetry Streaming** | FastAPI, Uvicorn, Asynchronous WebSockets, Pydantic | **PLANNED 📅** | *Planned: `day-08/DAY_08_FASTAPI_GATEWAY_REPORT.md`* |
 | **09** | **Geospatial Dashboard Core** | React 18, Vite, MapLibre GL, deck.gl 3D Hexagonal Heatmaps | **PLANNED 📅** | *Planned: `day-09/DAY_09_DASHBOARD_CORE_REPORT.md`* |
 | **10** | **Interactive Rerouting & Trend UI** | React Components, Recharts, Origin-Destination Path Comparator | **PLANNED 📅** | *Planned: `day-10/DAY_10_DASHBOARD_INTEGRATION_REPORT.md`* |
@@ -160,7 +161,19 @@ Phase 1: Foundation (COMPLETE)        Phase 2: Analytics & Models (IN PROGRESS) 
   * Persisted fitted models natively via Spark MLlib (`models/linear_regression/`, `models/decision_tree/`).
   * Exported structured evaluation artifacts (`reports/day-05/metrics.json`, `per_zone_metrics.json`, `results.md`, `verification.md`).
   * Authored independent model audit verifier `verify_models.py` verifying numerical prediction parity ($\Delta \le 3.6 \times 10^{-5}$) and 9 automated unit/integration tests in `test_model_training.py` (53/53 tests passing across project).
-  * Designated `models/linear_regression/` as the primary live forecasting engine for Day 6 streaming inference.
+### Day 6: Live MLlib Streaming Inference & Checkpoints
+* **Report:** [`day-06/DAY_06_LIVE_INFERENCE_REPORT.md`](file:///c:/Users/Tokachichu%20SriCharan/OneDrive/Documents/GitHub/urbanix/_day-notes/day-06/DAY_06_LIVE_INFERENCE_REPORT.md)
+* **Crash Test Runbook:** [`day-06/CRASH_TEST.md`](file:///c:/Users/Tokachichu%20SriCharan/OneDrive/Documents/GitHub/urbanix/_day-notes/day-06/CRASH_TEST.md)
+* **Key Achievements:**
+  * Engineered `services/streaming/streaming_inference.py` encapsulating model loading, exact 9-feature transformation, and micro-batch inference.
+  * Solved driver/worker serialization constraints by loading `LinearRegressionModel` once on the Spark driver at pipeline startup, avoiding repeated disk reads and task closure serialization errors.
+  * Integrated live inference into active Spark Structured Streaming pipeline (`streaming_job.py`) using `foreachBatch` callback to overcome Spark MLlib's static DataFrame constraint.
+  * Enforced strict 9-dimensional feature parity (`avg_speed_kmph`, `min_speed_kmph`, `max_speed_kmph`, `speed_spread_kmph`, `traffic_record_count`, `hour_of_day`, `sin_hour`, `cos_hour`, `zone_index`).
+  * Emitted downstream GraphX-compatible schema: `zone_id`, `window`, `avg_speed_kmph`, `predicted_speed_kmph`, `predicted_speed`, `prediction_model`.
+  * Preserved scope integrity: explicitly documented deferred status of PM2.5 forecasting (zero synthetic models or fabricated predictions).
+  * Implemented and executed crash-and-restart recovery harness (`test_checkpoint_recovery.py`) with durable checkpointing (`infra/checkpoints/traffic/`); proved state recovery and zero record loss.
+  * Formally audited and documented at-least-once delivery guarantees for append-mode Parquet sinks.
+  * Authored 8 automated tests in `test_streaming_inference.py` and independent verifier `verify_inference.py` (61/61 total tests passing across project).
 
 ---
 

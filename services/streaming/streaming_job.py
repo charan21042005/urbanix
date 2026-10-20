@@ -47,7 +47,7 @@ from pyspark.sql.functions import (
     lit,
 )
 
-# Relative or package import for schemas
+# Relative or package import for schemas and inference engine
 try:
     from schemas import (
         TRAFFIC_SCHEMA,
@@ -57,6 +57,12 @@ try:
         TIMESTAMP_FORMAT,
         DEFAULT_TIMEZONE,
     )
+    from streaming_inference import (
+        load_forecasting_model,
+        make_traffic_batch_processor,
+        prepare_traffic_features,
+        predict_traffic_speed,
+    )
 except ImportError:
     from services.streaming.schemas import (
         TRAFFIC_SCHEMA,
@@ -65,6 +71,12 @@ except ImportError:
         GRID_ZONES_SCHEMA,
         TIMESTAMP_FORMAT,
         DEFAULT_TIMEZONE,
+    )
+    from services.streaming.streaming_inference import (
+        load_forecasting_model,
+        make_traffic_batch_processor,
+        prepare_traffic_features,
+        predict_traffic_speed,
     )
 
 logging.basicConfig(
@@ -441,6 +453,64 @@ def start_parquet_query(
     return query
 
 
+def start_traffic_inference_query(
+    df: DataFrame,
+    model: Any,
+    output_path: str,
+    checkpoint_path: str,
+    query_name: str = "TrafficInferenceQuery",
+    trigger_interval: str = "10 seconds",
+    available_now: bool = False,
+):
+    """
+    Starts a Structured Streaming query that performs live MLlib model inference on each
+    finalized micro-batch using foreachBatch and writes predictions to Parquet.
+
+    Architectural Rationale:
+    ------------------------
+    1. Why foreachBatch instead of direct .transform() on the streaming DataFrame?
+       In Apache Spark, MLlib's .transform() method requires a static DataFrame and cannot be
+       applied directly to an unbounded streaming DataFrame because MLlib algorithms are
+       not implemented as streaming relational expressions. Structured Streaming's
+       `foreachBatch` sink delivers each finalized micro-batch as an ordinary static DataFrame,
+       enabling native MLlib VectorAssembler and model scoring (.transform()) without schema errors.
+
+    2. Why load the model ONCE at job startup outside foreachBatch?
+       The model is loaded once on the driver node before starting the streaming query.
+       If the model were loaded inside the per-batch callback function, Spark would re-read
+       the model metadata and weight matrices from disk on every single micro-batch trigger,
+       causing severe disk I/O bottlenecks and high processing latency.
+
+    3. Checkpointing & At-Least-Once Delivery Guarantees:
+       Structured Streaming records source Kafka offsets and micro-batch commit states in the
+       specified checkpoint directory. If a worker fails or the driver process is terminated,
+       restarting the query with the identical checkpointLocation ensures that processing
+       resumes exactly from the last committed offset, avoiding unhandled data loss.
+    """
+    os.makedirs(output_path, exist_ok=True)
+    os.makedirs(checkpoint_path, exist_ok=True)
+
+    logger.info(
+        f"Starting inference query '{query_name}': output='{output_path}', "
+        f"checkpoint='{checkpoint_path}', trigger={'availableNow' if available_now else trigger_interval}"
+    )
+
+    batch_processor = make_traffic_batch_processor(model, output_path)
+
+    writer = (
+        df.writeStream.queryName(query_name)
+        .foreachBatch(batch_processor)
+        .option("checkpointLocation", checkpoint_path)
+    )
+
+    if available_now:
+        query = writer.trigger(availableNow=True).start()
+    else:
+        query = writer.trigger(processingTime=trigger_interval).start()
+
+    return query
+
+
 def run_pipeline(
     bootstrap_servers: str,
     traffic_topic: str,
@@ -457,20 +527,44 @@ def run_pipeline(
     await_termination: bool = True,
     available_now: bool = False,
     kafka_package: Optional[str] = None,
+    model_path: Optional[str] = None,
+    enable_inference: bool = True,
 ):
     """
     Main orchestration function: initializes Spark, reads 3 Kafka topics, applies
-    validation, windowing, watermarking, zone joining, and starts 3 Parquet queries.
+    validation, windowing, watermarking, zone joining, loads the MLlib model once,
+    and starts 3 streaming queries (traffic with live inference, aqi, and weather).
     """
     spark = build_spark_session(master=spark_master, kafka_package=kafka_package)
     grid_zones = load_grid_zones(spark, zones_path)
+
+    # Load MLlib forecasting model ONCE at job startup (outside micro-batch loop)
+    forecasting_model = None
+    if enable_inference and model_path:
+        if os.path.exists(model_path):
+            try:
+                forecasting_model = load_forecasting_model(model_path)
+                logger.info(
+                    f"Successfully loaded primary MLlib forecasting model from '{model_path}' "
+                    f"for live streaming inference."
+                )
+            except Exception as e:
+                logger.warning(
+                    f"Could not initialize forecasting model from '{model_path}': {e}. "
+                    f"Falling back to standard feature aggregation query without live inference."
+                )
+        else:
+            logger.warning(
+                f"Model path '{model_path}' not found. "
+                f"Falling back to standard feature aggregation query."
+            )
 
     # 1. Traffic Pipeline
     raw_traffic = read_kafka_stream(spark, bootstrap_servers, traffic_topic, starting_offsets)
     valid_traffic = parse_and_validate_traffic(raw_traffic)
     traffic_features = aggregate_traffic(valid_traffic, grid_zones, window_duration, watermark_delay)
 
-    # 2. AQI Pipeline
+    # 2. AQI Pipeline (PM2.5 forecasting deferred - no valid Day 5 model artifact exists)
     raw_aqi = read_kafka_stream(spark, bootstrap_servers, aqi_topic, starting_offsets)
     valid_aqi = parse_and_validate_aqi(raw_aqi)
     aqi_features = aggregate_aqi(valid_aqi, grid_zones, window_duration, watermark_delay)
@@ -481,14 +575,25 @@ def run_pipeline(
     weather_features = aggregate_weather(valid_weather, grid_zones, window_duration, watermark_delay)
 
     # Start 3 Independent Streaming Queries
-    traffic_query = start_parquet_query(
-        traffic_features,
-        os.path.join(output_root, "traffic"),
-        os.path.join(checkpoint_root, "traffic"),
-        query_name="TrafficFeatureQuery",
-        trigger_interval=trigger_interval,
-        available_now=available_now,
-    )
+    if forecasting_model is not None:
+        traffic_query = start_traffic_inference_query(
+            traffic_features,
+            model=forecasting_model,
+            output_path=os.path.join(output_root, "traffic"),
+            checkpoint_path=os.path.join(checkpoint_root, "traffic"),
+            query_name="TrafficInferenceQuery",
+            trigger_interval=trigger_interval,
+            available_now=available_now,
+        )
+    else:
+        traffic_query = start_parquet_query(
+            traffic_features,
+            os.path.join(output_root, "traffic"),
+            os.path.join(checkpoint_root, "traffic"),
+            query_name="TrafficFeatureQuery",
+            trigger_interval=trigger_interval,
+            available_now=available_now,
+        )
 
     aqi_query = start_parquet_query(
         aqi_features,
@@ -573,6 +678,16 @@ def main():
         help="Kafka starting offsets policy (default: latest)",
     )
     parser.add_argument("--master", default=None, help="Spark master URL (optional)")
+    parser.add_argument(
+        "--model-path",
+        default=os.path.join(repo_root, "models", "linear_regression"),
+        help="Path to trained MLlib LinearRegression model for live inference (default: models/linear_regression)",
+    )
+    parser.add_argument(
+        "--disable-inference",
+        action="store_true",
+        help="Disable live model scoring and run raw feature aggregation only",
+    )
     parser.add_argument("--no-await", action="store_true", help="Do not block on awaitTermination")
     parser.add_argument(
         "--available-now",
@@ -603,6 +718,8 @@ def main():
         await_termination=not args.no_await,
         available_now=args.available_now,
         kafka_package=args.kafka_package,
+        model_path=args.model_path,
+        enable_inference=not args.disable_inference,
     )
 
 
