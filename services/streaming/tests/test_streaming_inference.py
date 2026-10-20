@@ -39,6 +39,8 @@ from pyspark.sql.types import (
     StructType,
     StructField,
     StringType,
+    DoubleType,
+    LongType,
     TimestampType,
 )
 from pyspark.ml.linalg import VectorUDT
@@ -93,7 +95,7 @@ def sample_windowed_traffic(spark):
 # UNIT TESTS: Model Deserialization & Schema Validation
 # =============================================================================
 
-def test_load_forecasting_model_success():
+def test_load_forecasting_model_success(spark):
     """Verifies that the canonical Day 5 Linear Regression model loads and has 9 features."""
     model_path = os.path.join(project_root, "models", "linear_regression")
     assert os.path.exists(model_path), f"Missing model directory at {model_path}"
@@ -153,6 +155,55 @@ def test_prepare_traffic_features_missing_cols_raises(spark):
     
     with pytest.raises(ValueError, match="missing mandatory feature column"):
         prepare_traffic_features(df)
+
+
+def test_prepare_traffic_features_null_feature_raises(spark):
+    """Verifies that null features are rejected by VectorAssembler(handleInvalid='error')."""
+    schema = StructType([
+        StructField("zone_id", StringType(), False),
+        StructField("window_start", TimestampType(), False),
+        StructField("avg_speed_kmph", DoubleType(), True),
+        StructField("min_speed_kmph", DoubleType(), True),
+        StructField("max_speed_kmph", DoubleType(), True),
+        StructField("traffic_record_count", LongType(), False),
+    ])
+    # Record with null min_speed_kmph
+    df = spark.createDataFrame([
+        ("zone_1", datetime(2012, 3, 1, 7, 0, 0), 55.0, None, 65.0, 100),
+    ], schema)
+    
+    with pytest.raises(Exception):
+        # Must fail when VectorAssembler encounters null with handleInvalid='error'
+        prepare_traffic_features(df).collect()
+
+
+def test_run_pipeline_missing_model_raises_explicitly(tmp_path):
+    """
+    Verifies that when live inference is enabled (default), a missing model path
+    raises FileNotFoundError immediately at pipeline startup rather than silently
+    falling back to standard feature aggregation.
+    """
+    from streaming_job import run_pipeline
+    
+    missing_model_path = str(tmp_path / "non_existent_model_dir")
+    dummy_zones = str(tmp_path / "zones.csv")
+    with open(dummy_zones, "w") as f:
+        f.write("zone_id,zone_name\nzone_1,Central\n")
+        
+    with pytest.raises(FileNotFoundError, match="required model directory was not found"):
+        run_pipeline(
+            bootstrap_servers="localhost:9092",
+            traffic_topic="traffic-topic",
+            aqi_topic="aqi-topic",
+            weather_topic="weather-topic",
+            zones_path=dummy_zones,
+            output_root=str(tmp_path / "out"),
+            checkpoint_root=str(tmp_path / "chk"),
+            model_path=missing_model_path,
+            enable_inference=True,
+            await_termination=False,
+            spark_master="local[1]",
+        )
 
 
 # =============================================================================

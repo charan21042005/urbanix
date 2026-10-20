@@ -117,28 +117,44 @@ The query resumed directly from `Batch 2`!
 
 To provide fully reproducible, machine-verified evidence for Day 6 audit, the recovery harness in [`services/streaming/test_checkpoint_recovery.py`](file:///c:/Users/Tokachichu%20SriCharan/OneDrive/Documents/GitHub/urbanix/services/streaming/test_checkpoint_recovery.py) executed this exact protocol in an isolated test environment.
 
-### Observed Execution Log:
+### Observed Process-Level Execution Log:
 ```text
-===========================================================================
-URBANIX DAY 6: LIVE INFERENCE CHECKPOINT RECOVERY VERIFICATION
-===========================================================================
-[*] Step 1: Loading model from 'models/linear_regression'...
-[+] Loaded LinearRegressionModel: intercept=44.0640
-[+] Step 2: Staged initial streaming micro-batch 0 at infra\checkpoints\test_recovery_input\batch_0.json
-[*] Step 3: Launching initial streaming query (Phase 1)...
-[+] Phase 1 Output Count: 5 rows in data\feature_table\test_recovery_traffic
+==============================================================================
+URBANIX DAY 6: GENUINE PROCESS-CRASH & CHECKPOINT RECOVERY DEMONSTRATION
+==============================================================================
+[*] Step 1: Staging initial streaming micro-batch 0 (5 zones for 07:00:00 UTC)...
+[+] Staged micro-batch 0 at infra\checkpoints\test_process_recovery_input\batch_0.json
 
-[*] Step 4: Simulating ungraceful process crash (stopping query1)...
-[+] Query 1 terminated. Checkpoint directory preserved on disk.
-[+] Checkpoint verified: commits=2, offsets=2
+[*] Step 2: Spawning Child OS Process 1 running live Structured Streaming inference...
+[+] Child Process 1 active with PID=28320
+[*] Waiting for Child Process 1 to commit Batch 0 to checkpoint...
+[+] Batch 0 committed to disk by Child Process 1!
 
-[*] Step 5: Staging micro-batch 1 while system is offline...
-[+] Staged micro-batch 1 at infra\checkpoints\test_recovery_input\batch_1.json
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+[!] INJECTING HARD OS-LEVEL PROCESS CRASH: Sending proc.kill() to PID=28320...
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+[+] Process 28320 forcefully terminated. Exit code: 1 (Non-zero confirmed)
 
-[*] Step 6: Restarting query from existing checkpoint (Phase 2 Recovery)...
+[*] Step 4: Inspecting checkpoint persistence on disk after hard kill...
+[+] Checkpoint verified: 2 commit log(s), 2 offset log(s) intact on disk.
 
-[*] Step 7: Auditing post-recovery output...
-[+] Total Rows After Recovery: 10 (Expected: 10)
+[*] Step 5: Staging micro-batch 1 while streaming process is dead...
+[+] Staged micro-batch 1 at infra\checkpoints\test_process_recovery_input\batch_1.json
+
+[*] Step 6: Spawning Child OS Process 2: Restarting query from EXACT SAME checkpoint...
+[+] Child Process 2 active with PID=28252
+[+] Child Process 2 completed cleanly with exit code 0
+
+[*] Step 7: Performing rigorous data audit on post-recovery Parquet store...
+[+] Total Rows Persisted in Sink: 10
+[+] Distinct (zone_id, window_start) Keys: 10 (Expected: 10)
+[+] Duplicate Key Count: 0
+    Delivery Semantics Analysis: Because the hard kill occurred after commits/0 was written,
+    the recovery process correctly resumed at Batch 1, yielding exactly 10 rows and 0 duplicates.
+    If killed prior to commits/0, at-least-once re-execution would write duplicate part-files
+    which are safely deduplicated downstream by (zone_id, window_start).
+[+] Missing Expected Keys Count: 0
+[+] Invalid / Out-of-Bounds Predictions: 0
 
 [+] Sample of Recovered Predictions Table:
 +-------------------+-------+--------------+--------------------+--------------------+
@@ -155,15 +171,18 @@ URBANIX DAY 6: LIVE INFERENCE CHECKPOINT RECOVERY VERIFICATION
 |2012-03-01 07:05:00|zone_4 |73.1          |81.43               |LinearRegression_OLS|
 |2012-03-01 07:05:00|zone_5 |106.8         |103.86              |LinearRegression_OLS|
 +-------------------+-------+--------------+--------------------+--------------------+
----------------------------------------------------------------------------
-[+] CHECKPOINT RECOVERY DEMONSTRATION RESULT: ALL CHECKS PASSED.
----------------------------------------------------------------------------
+
+==============================================================================
+[+] GENUINE PROCESS-LEVEL CRASH & CHECKPOINT RECOVERY: ALL CHECKS PASSED!
+==============================================================================
 ```
 
 ### Key Verification Findings:
-1. **Zero Data Loss:** All 10 expected observations (5 from Batch 0, 5 from Batch 1) were successfully persisted.
-2. **Zero Nulls / NaNs:** 100% of recovered records contain non-null, physically bounded velocity predictions ($73.1\text{--}108.4\text{ km/h}$).
-3. **Continuous State Progression:** The query advanced cleanly from `Batch 0` to `Batch 1` after recovery, utilizing the persisted checkpoint offsets.
+1. **Genuine Process Crash Survived:** Process 28320 was forcefully killed via `proc.kill()` (exit code 1); commit logs and offset records on disk remained completely intact.
+2. **Stable Record Identity Verification:** Exactly 10 distinct `(zone_id, window_start)` composite keys exist. Zero missing expected records.
+3. **Duplicate Key Audit:** Exactly 0 duplicate records observed for this checkpoint boundary. Delivery guarantee confirmed as at-least-once.
+4. **Zero Nulls / NaNs:** 100% of recovered records contain non-null, physically bounded velocity predictions ($73.1\text{--}108.4\text{ km/h}$).
+5. **Continuous State Progression:** Child Process 2 advanced cleanly from `Batch 0` to `Batch 1` after recovery, utilizing the persisted checkpoint offsets.
 
 ---
 
@@ -172,10 +191,10 @@ URBANIX DAY 6: LIVE INFERENCE CHECKPOINT RECOVERY VERIFICATION
 To independently rerun the automated verification suite:
 
 ```powershell
-# 1. Run full Day 6 unit & integration test suite (8 tests):
+# 1. Run full Day 6 unit & integration test suite (10 tests):
 .\services\streaming\venv\Scripts\pytest services/streaming/tests/test_streaming_inference.py -v
 
-# 2. Run standalone crash-recovery demonstration:
+# 2. Run standalone process-level crash-recovery demonstration:
 .\services\streaming\venv\Scripts\python services/streaming/test_checkpoint_recovery.py
 
 # 3. Run independent inference verifier:

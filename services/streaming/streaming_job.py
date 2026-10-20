@@ -540,24 +540,36 @@ def run_pipeline(
 
     # Load MLlib forecasting model ONCE at job startup (outside micro-batch loop)
     forecasting_model = None
-    if enable_inference and model_path:
-        if os.path.exists(model_path):
-            try:
-                forecasting_model = load_forecasting_model(model_path)
-                logger.info(
-                    f"Successfully loaded primary MLlib forecasting model from '{model_path}' "
-                    f"for live streaming inference."
-                )
-            except Exception as e:
-                logger.warning(
-                    f"Could not initialize forecasting model from '{model_path}': {e}. "
-                    f"Falling back to standard feature aggregation query without live inference."
-                )
-        else:
-            logger.warning(
-                f"Model path '{model_path}' not found. "
-                f"Falling back to standard feature aggregation query."
+    if enable_inference:
+        if not model_path:
+            raise ValueError(
+                "Streaming inference is enabled (enable_inference=True), but 'model_path' is None or empty. "
+                "Specify a valid model directory or pass enable_inference=False to run feature aggregation only."
             )
+        if not os.path.exists(model_path):
+            raise FileNotFoundError(
+                f"Streaming inference is enabled, but the required model directory was not found: '{model_path}'. "
+                f"Ensure Day 5 model training has been completed, or pass --disable-inference (enable_inference=False) "
+                f"to run feature aggregation without live inference."
+            )
+        try:
+            forecasting_model = load_forecasting_model(model_path)
+            logger.info(
+                f"Successfully loaded primary MLlib forecasting model from '{model_path}' "
+                f"for live streaming inference."
+            )
+        except Exception as e:
+            logger.error(
+                f"Fatal startup error: Failed to load required forecasting model from '{model_path}': {e}"
+            )
+            raise RuntimeError(
+                f"Fatal startup error: Failed to load required forecasting model from '{model_path}': {e}"
+            ) from e
+    else:
+        logger.info(
+            "Live MLlib streaming inference is explicitly disabled (enable_inference=False). "
+            "Running standard feature aggregation only."
+        )
 
     # 1. Traffic Pipeline
     raw_traffic = read_kafka_stream(spark, bootstrap_servers, traffic_topic, starting_offsets)

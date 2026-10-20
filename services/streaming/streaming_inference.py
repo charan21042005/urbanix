@@ -195,11 +195,11 @@ def prepare_traffic_features(df: DataFrame) -> DataFrame:
         .withColumn("zone_index", zone_expr)
     )
     
-    # 3. Assemble into VectorUDT column
+    # 3. Assemble into VectorUDT column (strictly error on invalid/null/NaN features)
     assembler = VectorAssembler(
         inputCols=INFERENCE_FEATURE_COLS,
         outputCol="features",
-        handleInvalid="keep",
+        handleInvalid="error",
     )
     assembled_df = assembler.transform(featured_df)
     return assembled_df
@@ -238,7 +238,13 @@ def predict_traffic_speed(
         .withColumn("prediction_model", lit("LinearRegression_OLS"))
         .withColumn("prediction_timestamp", current_timestamp())
     )
-    return result_df
+    
+    # Ensure invalid predictions (null, NaN, or non-finite) are filtered out so that
+    # malformed records cannot silently enter downstream sinks
+    clean_predictions = result_df.filter(
+        col(prediction_col_name).isNotNull() & ~isnan(col(prediction_col_name))
+    )
+    return clean_predictions
 
 
 def make_traffic_batch_processor(

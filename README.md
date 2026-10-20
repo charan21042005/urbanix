@@ -9,7 +9,7 @@
 ![Scala](https://img.shields.io/badge/Scala-GraphX-dc322f?style=for-the-badge&logo=scala)
 ![Docker](https://img.shields.io/badge/Docker-Compose_Cluster-2496ED?style=for-the-badge&logo=docker)
 ![Milestone](https://img.shields.io/badge/Day_6-Complete_(Live_MLlib_Inference_&_Checkpoint_Recovery)-brightgreen?style=for-the-badge)
-![Tests](https://img.shields.io/badge/Tests-61%2F61_Passing_(19_Prod_+_14_Stream_+_11_Split_+_9_ML_+_8_Inf)-brightgreen?style=for-the-badge)
+![Tests](https://img.shields.io/badge/Tests-63%2F63_Passing_(19_Prod_+_14_Stream_+_11_Split_+_9_ML_+_10_Inf)-brightgreen?style=for-the-badge)
 ![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)
 
 *A distributed Kafka + Spark platform for streaming urban telemetry, forecasting localized traffic and environmental risk, and supporting congestion-aware route planning.*
@@ -206,7 +206,7 @@ python -m venv services\streaming\venv
 .\services\streaming\venv\Scripts\pip install -r services\streaming\requirements.txt
 ```
 
-### 3. Run Automated Full Test Suite (61/61 Tests Passing)
+### 3. Run Automated Full Test Suite (63/63 Tests Passing)
 ```powershell
 # Day 2 Producer tests (19 tests):
 .\services\producers\venv\Scripts\pytest services/producers/tests -v
@@ -220,7 +220,7 @@ python -m venv services\streaming\venv
 # Day 5 MLlib Model Training & Parity tests (9 tests):
 .\services\streaming\venv\Scripts\pytest services/streaming/tests/test_model_training.py -v
 
-# Day 6 Streaming Live Inference & Checkpoint tests (8 tests):
+# Day 6 Streaming Live Inference & Checkpoint tests (10 tests):
 .\services\streaming\venv\Scripts\pytest services/streaming/tests/test_streaming_inference.py -v
 ```
 
@@ -276,7 +276,7 @@ python -m venv services\streaming\venv
 - [x] **Feature Engineering & Future Target (Day 4):** Supervised target formulation via `lead()`, 300s Continuity Guard, cyclic time encodings
 - [x] **Estimator Hygiene & Vector Assembly:** `StringIndexer` fit on training split only, `VectorAssembler` 9-feature vectors, target strictly excluded
 - [x] **Chronological Split & Zero Leakage:** 80% elapsed time cutoff (`06:24:00 UTC`), 5 boundary-crossing rows excluded, verified: $\max(\text{train.target}) < \min(\text{test.feature})$
-- [x] **Automated Test Suite (Full Stack):** 61/61 tests passing in pytest (19 producers + 14 streaming + 11 feature preparation + 9 ML training + 8 streaming inference)
+- [x] **Automated Test Suite (Full Stack):** 63/63 tests passing in pytest (19 producers + 14 streaming + 11 feature preparation + 9 ML training + 10 streaming inference)
 - [x] **Independent Data & Model Verifiers:** `verify_features.py`, `verify_split.py`, `verify_models.py`, and `verify_inference.py` passing against persisted Parquet
 - [x] **MLlib Model Training & Evaluation (Day 5):** Linear Regression ($R^2 = 0.7757$, $\text{RMSE} = 2.9280\text{ km/h}$, $\text{MAE} = 2.4733\text{ km/h}$) meets milestone threshold ($R^2 > 0.75$); Decision Tree baseline documented
 - [x] **Live MLlib Streaming Inference & Checkpoint Recovery (Day 6):** LinearRegressionModel loaded on driver; `foreachBatch` micro-batch scoring; exact 9-dim feature parity; durable crash recovery verified; at-least-once delivery semantics documented
@@ -287,7 +287,7 @@ python -m venv services\streaming\venv
   - [`producers/`](services/producers/README.md) - Sensor data simulation & Kafka streaming (Day 2 Complete)
     - [`tests/`](services/producers/tests/README.md) - Automated unit test suite (19 tests)
   - [`streaming/`](services/streaming/README.md) - PySpark Structured Streaming, Feature Engineering & Live Inference (Days 3, 4 & 6 Complete)
-    - [`tests/`](services/streaming/tests/) - Automated streaming, feature, ML, and inference test suites (42 tests)
+    - [`tests/`](services/streaming/tests/) - Automated streaming, feature, ML, and inference test suites (44 tests)
   - [`graphx-reroute/`](services/graphx-reroute/README.md) - Scala GraphX dynamic routing engine
 - [`infra/`](infra/README.md) - Docker Compose distributed cluster (Day 1 Complete)
   - [`checkpoints/`](infra/checkpoints/README.md) - Streaming query state stores & Write-Ahead Logs

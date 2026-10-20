@@ -173,7 +173,7 @@ Phase 1: Foundation (COMPLETE)        Phase 2: Analytics & Models (COMPLETE)    
   * Preserved scope integrity: explicitly documented deferred status of PM2.5 forecasting (zero synthetic models or fabricated predictions).
   * Implemented and executed crash-and-restart recovery harness (`test_checkpoint_recovery.py`) with durable checkpointing (`infra/checkpoints/traffic/`); proved state recovery and zero record loss.
   * Formally audited and documented at-least-once delivery guarantees for append-mode Parquet sinks.
-  * Authored 8 automated tests in `test_streaming_inference.py` and independent verifier `verify_inference.py` (61/61 total tests passing across project).
+  * Authored 10 automated tests in `test_streaming_inference.py` and independent verifier `verify_inference.py` (63/63 total tests passing across project).
 
 ---
 
