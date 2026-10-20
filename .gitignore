@@ -51,3 +51,8 @@ models/*/metadata/
 
 # Docker
 .docker/
+
+# Documentation Safeguard: NEVER ignore any Markdown documentation
+!*.md
+!**/*.md
+
