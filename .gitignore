@@ -34,5 +34,9 @@ data/train/
 data/test/
 infra/checkpoints/
 
+# MLlib Models (reproducible via python services/streaming/train_evaluate.py)
+models/*
+!models/.gitkeep
+
 # Docker
 .docker/

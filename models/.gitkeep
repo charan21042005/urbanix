@@ -1,0 +1,3 @@
+# Keep models directory in Git while ignoring binary weights
+# Models can be regenerated at any time with:
+# python services/streaming/train_evaluate.py
