@@ -38,8 +38,8 @@ graph TD
 
     %% Phase 3: Analytical Sinks & Operator Dashboard
     subgraph P3["<b>PHASE 3: Analytical Sinks & Operator Dashboard (Days 7–10)</b> — [IN PROGRESS]"]
-        D7["<b>Day 7: Scala GraphX Rerouting & Analytical Sinks</b><br>Dijkstra • Dynamic Edge Weights • Parquet Data Lake<br><b>Status: ACTIVE NEXT</b>"]
-        D8["<b>Day 8: API Gateway & WebSocket Server</b><br>FastAPI Async Server • Real-Time Telemetry WebSockets<br><b>Status: PLANNED</b>"]
+        D7["<b>Day 7: Scala GraphX Road-Graph Construction & Integrity Audit</b><br>Property Graph • Vertex-Cut • Two-Phase Validation • 100% Reciprocity<br><b>Status: COMPLETE</b>"]
+        D8["<b>Day 8: Congestion-Weighted Shortest Path Routing</b><br>Spark GraphX • ShortestPaths / Pregel • Dynamic Travel Times • Detour Verification<br><b>Status: ACTIVE NEXT</b>"]
         D9["<b>Day 9: Geospatial Dashboard Core</b><br>React 18 • Vite • MapLibre GL • deck.gl 3D Hex Heatmaps<br><b>Status: PLANNED</b>"]
         D10["<b>Day 10: Interactive Operator Dashboard</b><br>Route Comparator • Live Gauges • Recharts Time-Series<br><b>Status: PLANNED</b>"]
         D7 --> D8 --> D9 --> D10
@@ -176,17 +176,20 @@ Phase 1: Foundation (COMPLETE)        Phase 2: Analytics & Models (COMPLETE)    
   * Formally audited and documented at-least-once delivery guarantees for append-mode Parquet sinks.
   * Authored 10 automated tests in `test_streaming_inference.py` and independent verifier `verify_inference.py` (63/63 total tests passing across project).
 
-### Day 7: Scala + sbt Setup, Spark GraphX Road-Graph Construction
-* **Report:** [`day-07/DAY_07_GRAPHX_CONSTRUCTION_REPORT.md`](file:///c:/Users/Tokachichu%20SriCharan/OneDrive/Documents/GitHub/urbanix/_day-notes/day-07/DAY_07_GRAPHX_CONSTRUCTION_REPORT.md)
+### Day 7: Scala + sbt Setup, Spark GraphX Road-Graph Construction & Integrity Audit
+* **Reports:**
+  * [`day-07/DAY_07_GRAPHX_CONSTRUCTION_REPORT.md`](file:///c:/Users/Tokachichu%20SriCharan/OneDrive/Documents/GitHub/urbanix/_day-notes/day-07/DAY_07_GRAPHX_CONSTRUCTION_REPORT.md) — 1,318-line pedagogical compendium and 40-question academic viva defense manual.
+  * [`day-07/DAY_07_FINAL_AUDIT_REPORT.md`](file:///c:/Users/Tokachichu%20SriCharan/OneDrive/Documents/GitHub/urbanix/_day-notes/day-07/DAY_07_FINAL_AUDIT_REPORT.md) — Independent engineering audit report, targeted corrections, and formal closure gate.
 * **Key Achievements:**
   * Scaffolded hermetic Scala/sbt module (`services/graphx-reroute/`) with pinned Scala 2.12.18, sbt 1.9.9, and Apache Spark 3.5.0 (`spark-core`, `spark-sql`, `spark-graphx`, `scalatest`).
-  * Addressed binary ABI compatibility between Spark 3.5.0 Maven Central artifacts and Scala 2.12.
+  * Enforced binary ABI compatibility between Spark 3.5.0 Maven Central artifacts and Scala 2.12, isolating execution from local Scala 2.13 installations.
   * Authored source-grounded metropolitan road network datasets: `data/intersections.csv` (20 intersections spanning 5 zones) and `data/roads.csv` (40 directed segments representing 20 bidirectional corridors).
-  * Built `RoadGraphBuilder.scala` creating a genuine `Graph[String, Double]` property graph object with vertex name and base road distance attributes.
-  * Implemented `auditGraph()` verifying exact vertex and edge count reconciliation (20 vertices, 40 edges, 0 dangling endpoints, 0 self-loops).
-  * Authored 10-test automated suite in `RoadGraphBuilderSpec.scala` testing basic construction, deterministic ID mapping, duplicate detection, missing endpoints, invalid attributes, directionality, self-loops, and GraphX operators (`triplets`, `inDegrees`, `outDegrees`, `subgraph`).
-  * Verified structural reproducibility across two independent JVM invocations (`sbt run`).
-  * Re-verified Days 1–6 regression matrix (73/73 total tests passing across project; 63 Python + 10 Scala).
+  * Built `RoadGraphBuilder.scala` with a two-phase architecture: independent pre-construction source data validation (`validateSourceData`) and post-construction graph topology auditing (`auditGraph`).
+  * Implemented phantom vertex detection (`v._2 == null`), dangling edge detection, self-loop isolation, and exact directed-pair deduplication.
+  * Proved mathematically and empirically that 100% reciprocity across the 20 bidirectional corridors guarantees that 1 weakly connected component equals 1 strongly connected component ($k=1$).
+  * Authored 13-test automated suite in `RoadGraphBuilderSpec.scala` testing basic construction, deterministic ID mapping, duplicate detection, dangling edges, invalid distances, directionality, self-loops, strict fail-fast policy, and GraphX operators (`triplets`, `inDegrees`, `outDegrees`, `subgraph`).
+  * Verified structural reproducibility across independent JVM invocations (`sbt run`).
+  * Re-verified Days 1–6 regression matrix (76/76 total tests passing across project; 63 Python + 13 Scala).
 
 ---
 

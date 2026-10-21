@@ -35,8 +35,14 @@ data/feature_table/**/*.parquet
 data/feature_table/**/.*
 data/feature_table/**/_SUCCESS
 data/feature_table/**/_spark_metadata/
-data/train/
-data/test/
+data/train/**/*.parquet
+data/train/**/.*
+data/train/**/_SUCCESS
+data/test/**/*.parquet
+data/test/**/.*
+data/test/**/_SUCCESS
+!data/train/README.md
+!data/test/README.md
 infra/checkpoints/**/offsets/
 infra/checkpoints/**/commits/
 infra/checkpoints/**/metadata*
