@@ -104,34 +104,112 @@ Because **GraphX is exclusively a native JVM/Scala API** (with no official PySpa
 
 ## 🔬 2. Complete Beginner-to-Advanced Conceptual Foundations
 
-### 2.1 Graph Theory 101: Mathematical Representation of Road Networks
-In computer science and discrete mathematics, a road network is modeled as a **Directed Multigraph**:
+### 2.1 Graph Theory 101: Formal Mathematical Taxonomy
+In computer science, discrete mathematics, and operations research, a network is formalized as a **Graph**:
 $$\mathcal{G} = (V, E)$$
 Where:
-- **$V$ (Set of Vertices / Nodes):** Physical road intersections, highway interchanges, or dead-ends. Formally:
-  $$V = \{v_1, v_2, \dots, v_n\}$$
-  In Urbanix Day 7, $|V| = 20$.
-- **$E$ (Set of Edges / Arcs):** Directed segments of pavement connecting two intersections. Formally:
-  $$E = \{e_1, e_2, \dots, e_m\} \quad \text{where } e_k = (u, v) \in V \times V$$
-  In Urbanix Day 7, $|E| = 40$.
+- **$V$ (Vertices / Nodes):** The finite, non-empty set of discrete entities. Formally:
+  $$V = \{v_1, v_2, \dots, v_n\}, \quad |V| = n$$
+  In Urbanix Day 7, each vertex represents a physical road intersection or freeway interchange ($|V| = 20$).
+- **$E$ (Edges / Arcs / Links):** The set of pairwise relationships connecting vertices. Formally:
+  $$E = \{e_1, e_2, \dots, e_m\}, \quad |E| = m$$
+  Where each directed edge $e = (u, v)$ originates at source vertex $u \in V$ and terminates at destination vertex $v \in V$. In Urbanix Day 7, $|E| = 40$.
 
-#### Why Directed Edges?
-In elementary geometry, a road between two towns is drawn as a single line segment. However, in transportation systems engineering, roads must be modeled as **two distinct directed edges**:
+#### Graph Classification Taxonomy
+1. **Undirected vs. Directed Graphs (Digraphs):**
+   - In an *undirected graph*, edges are unordered sets $\{u, v\}$. Traversal is bidirectional by definition.
+   - In a *directed graph*, edges are ordered pairs $(u, v)$. Traversal is permissible only in the specified direction $u \to v$.
+2. **Simple Graphs vs. Multigraphs:**
+   - A *simple graph* permits at most one edge between any ordered pair $(u, v)$ and contains zero self-loops.
+   - A *multigraph* permits multiple parallel edges between the same vertex pair (e.g., parallel express and local freeway lanes). **GraphX is natively a Directed Multigraph engine.**
+3. **Paths, Walks, Trails, and Cycles:**
+   - **Walk:** An alternating sequence of vertices and edges $(v_0, e_1, v_1, e_2, \dots, v_k)$.
+   - **Trail:** A walk where all edges are distinct.
+   - **Path:** A walk where all vertices (and thus all edges) are strictly distinct.
+   - **Cycle:** A closed path where $v_0 = v_k$ and all intermediate vertices are distinct.
+4. **Self-Loops:**
+   - An edge where the source and destination are identical: $e = (u, u)$. In physical road networks, self-loops represent non-physical dead-end loops or data corruption anomalies. Our production validator explicitly checks for and forbids self-loops.
+
+#### Why Road Networks Must Be Directed
+In elementary cartography, a street is often drawn as a simple line. However, in transportation systems engineering, modeling bidirectional roads as undirected segments is mathematically invalid:
 $$e_{\text{forward}} = (u, v) \quad \text{and} \quad e_{\text{reverse}} = (v, u)$$
-**Why?**
-1. **Asymmetric Congestion:** During morning rush hour, traffic moving from residential suburbs (`zone_2`) into the downtown commercial core (`zone_1`) crawls at $15\text{ km/h}$, while the reverse direction out of downtown flows freely at $85\text{ km/h}$.
-2. **One-Way Streets:** Downtown grids contain one-way arterials where travel is legally prohibited in the reverse direction.
-3. **Independent Edge Weights:** Modeling each direction as an independent edge allows Day 8 to attach distinct dynamic travel times:
+1. **Asymmetric Directional Congestion:** During morning rush hour, traffic moving from suburban residential zones (`zone_2`) toward the downtown commercial center (`zone_1`) crawls at $15\text{ km/h}$, while outbound traffic flows freely at $85\text{ km/h}$. Undirected edges cannot assign distinct directional speeds.
+2. **One-Way Grids:** Modern urban layouts contain one-way arterials where vehicular travel is legally prohibited in the reverse direction.
+3. **Independent Dynamic Weights:** Modeling each direction as a separate directed edge allows Day 8 to attach independent dynamic travel times:
    $$t(u \to v) \ne t(v \to u)$$
 
-### 2.2 The GraphX Property Graph Abstraction
-In standard graph theory, vertices and edges are merely abstract mathematical labels. In practical software engineering, vertices have physical metadata (names, GPS coordinates, operational zones) and edges have physical attributes (length in kilometers, speed limits, number of lanes).
+---
 
-Apache Spark GraphX formalizes this as the **Property Graph**:
+### 2.2 Classical Graph Data Structures vs. GraphX Distributed RDPG
+Before examining distributed graph processing, we must understand how graphs are stored in memory and why classical single-machine data structures fail on distributed clusters.
+
+#### 1. Adjacency Matrix ($A \in \{0, 1\}^{n \times n}$)
+A two-dimensional square matrix where cell $A[u, v] = 1$ if edge $(u, v) \in E$, and $0$ otherwise (or stores edge weight $w$).
+$$\begin{pmatrix} 0 & 1.2 & 0 & 0.8 \\ 1.2 & 0 & 0.9 & 0 \\ 0 & 0.9 & 0 & 0 \\ 0.8 & 0 & 0 & 0 \end{pmatrix}$$
+- **Space Complexity:** $\Theta(|V|^2)$. For a metropolitan network with $100,000$ intersections, an adjacency matrix requires $100,000^2 \times 8\text{ bytes} \approx 80\text{ Gigabytes}$ of contiguous memory, even though $99.99\%$ of cells are zeroes!
+- **Edge Lookup Time:** $\mathcal{O}(1)$.
+- **Neighbor Iteration Time:** $\mathcal{O}(|V|)$ (must scan an entire row of zeroes).
+
+#### 2. Adjacency List ($Adj[u] = [(v_1, w_1), (v_2, w_2), \dots]$)
+An array of $|V|$ linked lists or dynamic arrays, where entry $Adj[u]$ contains all outgoing neighbors of vertex $u$.
+- **Space Complexity:** $\Theta(|V| + |E|)$. Highly compact for sparse graphs.
+- **Neighbor Iteration Time:** $\mathcal{O}(\text{deg}(u))$.
+- **Distributed Failure:** In a distributed cluster, high-degree hub vertices have massive adjacency lists. If a single vertex has $100,000$ neighbors, its entire list must reside in one machine's RAM, causing severe executor out-of-memory (OOM) imbalances.
+
+#### 3. Edge List / Coordinate Format ($[(u, v, w)]$)
+An unordered array of edge tuples. This is the flat relational table representation used by standard SQL and CSV files.
+- **Space Complexity:** $\Theta(|E|)$.
+- **Traversal Failure:** Finding neighbors requires a full scan or expensive relational join ($\mathcal{O}(|E|)$). Multi-hop path finding requires $k-1$ successive distributed shuffles.
+
+#### 4. GraphX Resilient Distributed Property Graph (Compressed Sparse Partitions)
+GraphX combines the compactness of Compressed Sparse Row (CSR) / Column (CSC) formats with distributed vertex-cut partitioning. Inside each executor partition, edges are stored in continuous primitive arrays (`Array[VertexId]`, `Array[Int]`, `Array[ED]`), completely eliminating Java object pointer overhead.
+
+#### Comprehensive Complexity Comparison Table
+| Feature / Operation | Adjacency Matrix | Adjacency List | Relational Edge List (SQL) | GraphX RDPG (Distributed) |
+| :--- | :---: | :---: | :---: | :---: |
+| **Storage Complexity** | $\mathcal{O}(\|V\|^2)$ | $\mathcal{O}(\|V\| + \|E\|)$ | $\mathcal{O}(\|E\|)$ | $\mathcal{O}(\|V_{\text{rep}}\| + \|E\|)$ distributed |
+| **Edge Existence $(u, v)$** | $\mathcal{O}(1)$ | $\mathcal{O}(\text{deg}(u))$ | $\mathcal{O}(\|E\|)$ (or index scan) | $\mathcal{O}(\log(\text{deg}(u)))$ local binary search |
+| **Iterate Out-Neighbors** | $\mathcal{O}(\|V\|)$ | $\mathcal{O}(\text{deg}(u))$ | $\mathcal{O}(\|E\|)$ join | $\mathcal{O}(\text{deg}(u))$ local array slice |
+| **Memory Overhead** | Extreme for sparse graphs | Pointer bloat on JVM | Relational tuple headers | **Zero pointer overhead (primitive arrays)** |
+| **Cluster Partitioning** | Block cyclic matrix cut | Vertex-cut (unbalanced) | Hash partition on `src_id` | **Balanced Vertex-Cut with 2D routing** |
+| **Multi-Hop Traversal** | Matrix multiplication | BFS / DFS recursion | Cartesian network shuffles | **Pregel supersteps (zero join shuffles)** |
+
+---
+
+### 2.3 Graph Topology Metrics, Physical Laws & Planarity
+
+#### Degree Concepts & The Handshaking Lemma
+For any vertex $v \in V$:
+- **In-Degree ($d_{\text{in}}(v)$):** The number of incoming directed edges arriving at $v$:
+  $$d_{\text{in}}(v) = |\{(u, v) \in E\}|$$
+- **Out-Degree ($d_{\text{out}}(v)$):** The number of outgoing directed edges originating from $v$:
+  $$d_{\text{out}}(v) = |\{(v, w) \in E\}|$$
+- **Total Degree ($d(v)$):** $d(v) = d_{\text{in}}(v) + d_{\text{out}}(v)$.
+
+> **The Directed Handshaking Lemma:**
+> In any directed multigraph $\mathcal{G} = (V, E)$, the sum of all in-degrees equals the sum of all out-degrees, which equals the total number of edges:
+> $$\sum_{v \in V} d_{\text{in}}(v) = \sum_{v \in V} d_{\text{out}}(v) = |E|$$
+
+In Urbanix Day 7:
+$$\sum_{v=1}^{20} d_{\text{in}}(v) = \sum_{v=1}^{20} d_{\text{out}}(v) = 40$$
+Our automated tests verify this exact conservation law across the entire GraphX topology.
+
+#### Planar Graphs & Road Networks
+A graph is **Planar** if it can be drawn in the Euclidean 2D plane such that no two edges cross each other.
+- **Euler's Formula for Planar Graphs:** For any connected planar graph with $V$ vertices, $E$ edges, and $F$ enclosed faces:
+  $$|V| - |E| + |F| = 2$$
+- **Edge Sparsity Corollary:** In any simple planar graph without triangles, $|E| \le 2|V| - 4$. In general planar graphs:
+  $$|E| \le 3|V| - 6$$
+- **Application to Smart City Road Networks:** Road networks are **Quasi-Planar Spatial Networks**. Unlike social networks (where a celebrity node can connect to $50,000,000$ followers, making $|E| \approx O(|V|^2)$), road intersections are physically constrained by geography: an intersection rarely connects to more than 4 to 6 physical road corridors ($d(v) \le 6$). Even with multi-level freeway overpasses (grade separations that cross without intersecting), the average degree remains bounded: $\bar{d} \approx 2.5 \text{ to } 4.0$. This sparsity makes road graphs exceptionally well-suited for linear-time traversal algorithms.
+
+---
+
+### 2.4 The GraphX Resilient Distributed Property Graph (RDPG) Model
+Apache Spark GraphX formalizes the road network as a **Resilient Distributed Property Graph**:
 $$\text{Graph}[VD, ED]$$
 Where:
-- `VD` is the **Vertex Data** type (e.g., `String` for intersection name, or a custom `case class IntersectionData(name: String, zoneId: String, lat: Double, lon: Double)`).
-- `ED` is the **Edge Data** type (e.g., `Double` for `base_distance_km`, or `case class RoadData(lengthKm: Double, speedLimit: Double)`).
+- `VD` is the **Vertex Attribute** type (e.g., `String` for intersection name, or a custom `case class IntersectionData(name: String, zoneId: String, lat: Double, lon: Double)`).
+- `ED` is the **Edge Attribute** type (e.g., `Double` for `base_distance_km`, or `case class RoadData(lengthKm: Double, speedLimit: Double)`).
 
 GraphX represents the property graph as two specialized, distributed RDDs:
 1. `VertexRDD[(VertexId, VD)]`: An RDD of key-value pairs where `VertexId` is always a 64-bit signed Long integer (`Long`), and `VD` is the attached property.
@@ -148,7 +226,30 @@ VertexRDD[(VertexId, VD)]                       EdgeRDD[Edge[ED]]
 +----+----------------------------+            +-------+-------+--------------------+
 ```
 
-### 2.3 Distributed Graph Partitioning: Vertex-Cut vs. Edge-Cut
+---
+
+### 2.5 Low-Level Memory Layout & Primitive Unboxing on the JVM
+Why does GraphX implement its own specialized RDDs (`VertexRDD` and `EdgeRDD`) rather than using standard Spark `RDD[(Long, VD)]` or `RDD[Edge[ED]]`?
+
+#### The JVM Object Overhead Tax
+In standard Java/Scala, an ordinary object in the 64-bit JVM incurs substantial memory overhead:
+- **Object Header:** 12 to 16 bytes (Mark Word + Klass Word).
+- **Reference Pointers:** 4 to 8 bytes (Compressed Oops vs 64-bit pointers).
+- **Padding:** 8-byte boundary alignment.
+
+If a road network with 10 million vertices stores vertex IDs as standard boxed `java.lang.Long` objects:
+$$\text{Boxed Long} = 16\text{ bytes (header)} + 8\text{ bytes (payload)} = 24\text{ bytes}$$
+Adding the reference pointer in an array adds another 8 bytes $\to \mathbf{32\text{ bytes}}$ per 8-byte integer! That represents a **$300\%$ memory bloat** purely due to JVM object overhead, leading to massive GC pauses during graph traversal.
+
+#### The GraphX Solution: Specialized Primitive Arrays & Off-Heap CSR
+GraphX eliminates object overhead through specialized columnar array partitioning:
+1. **Primitive Arrays:** Vertex IDs and edge pointers are stored in flat, continuous `Array[Long]` and `Array[Int]` allocations.
+2. **Compressed Sparse Row (CSR) Representation:** Inside each `EdgePartition`, edges originating from the same vertex are stored contiguously in memory. An array of integer offsets (`srcOffsets: Array[Int]`) marks where each vertex's adjacency slice begins and ends.
+3. **Cache Line Locality:** Iterating through the outgoing edges of an intersection becomes a single contiguous memory scan across CPU L1/L2/L3 caches, achieving maximum hardware throughput.
+
+---
+
+### 2.6 Distributed Graph Partitioning: Vertex-Cut vs. Edge-Cut
 How does an engine split a graph with millions of vertices and edges across a cluster of 50 worker machines?
 
 #### Approach A: Edge-Cut Partitioning (Traditional HPC Graph Tools)
@@ -158,7 +259,7 @@ Machine 1                   Machine 2
 [ Vertex A ] ═════ CUT ═════> [ Vertex B ]
 [ Vertex C ]                  [ Vertex D ]
 ```
-**Fatal Flaw in Real-World Networks:** Real-world networks (social networks, web links, road hubs) exhibit a **Power-Law Degree Distribution** ($P(k) \sim k^{-\gamma}$). High-degree hub intersections (e.g., major highway interchanges) connect to hundreds of edges. Under edge-cut partitioning, cutting the edges of a hub vertex forces continuous, high-volume network shuffles whenever that hub sends or receives messages.
+**Fatal Flaw in Real-World Networks:** Real-world networks exhibit a **Power-Law Degree Distribution** ($P(k) \sim k^{-\gamma}$). High-degree hub intersections (e.g., major freeway interchanges) connect to many edges. Under edge-cut partitioning, cutting the edges of a hub vertex forces continuous, high-volume network shuffles whenever that hub sends or receives messages.
 
 #### Approach B: Vertex-Cut Partitioning (Apache Spark GraphX)
 GraphX inverts this paradigm: **edges are partitioned evenly across machines, while vertices are cut (replicated) across partitions**:
@@ -171,7 +272,24 @@ Partition 1 (Machine 1)                   Partition 2 (Machine 2)
 - **Vertex Routing Tables:** Vertices that participate in edges across multiple partitions are replicated as "mirrors" on those partitions.
 - **Why Vertex-Cut Wins:** In road networks, $|E| \approx 2 \times |V|$ to $4 \times |V|$. Distributing edges evenly ensures balanced storage and computation. When a vertex attribute updates, GraphX multicasts the update only to the machines hosting mirrors of that vertex, drastically reducing cluster network traffic.
 
-### 2.4 The Edge Triplet Abstraction
+#### GraphX Partitioning Strategies (`PartitionStrategy`)
+GraphX provides multiple built-in vertex-cut strategies:
+1. `RandomVertexCut`: Edges are assigned to partitions by computing a hash of the source and destination IDs: `hash(srcId, dstId) % numParts`. Fast, but produces higher vertex replication.
+2. `CanonicalRandomVertexCut`: Assigns edges based on the canonical undirected pair: `hash(min(src, dst), max(src, dst)) % numParts`. Colocates forward edge $(u, v)$ and reverse edge $(v, u)$ onto the exact same partition. **Ideal for road networks!**
+3. `EdgePartition2D`: Arranges partitions into a 2D grid matrix, guaranteeing that any vertex is replicated across at most $2\sqrt{\text{numParts}} - 1$ machines.
+
+---
+
+### 2.7 Vertex Routing Tables & Mirror Replication Factor
+To manage replicated vertices without performing broadcast shuffles, GraphX constructs a **Routing Table** on each partition.
+- **The Replication Factor:** The average number of physical cluster partitions on which a vertex is replicated:
+  $$\rho = \frac{\sum_{v \in V} \text{mirrors}(v)}{|V|}$$
+  In a well-partitioned road network, $\rho$ typically ranges between $1.1$ and $1.5$, meaning very few vertices require cross-machine replication.
+- **Bitmap Tracking:** Each partition maintains a bitmask indicating whether a vertex appears as a source, a destination, or both within that partition's local edge slice.
+
+---
+
+### 2.8 The Edge Triplet Abstraction
 To compute routes or evaluate edge validity, an algorithm frequently needs to examine the source vertex, the connecting edge, and the destination vertex simultaneously. In SQL, this requires two joins (`roads` JOIN `vertices` ON `src` JOIN `vertices` ON `dst`).
 
 In GraphX, this is materialized through the **Edge Triplet**:
@@ -194,7 +312,49 @@ graph.triplets.foreach { triplet =>
 ```
 GraphX optimizes triplet materialization by colocating the vertex attributes with the edge partitions via the Vertex Routing Table, eliminating shuffles during triplet iteration.
 
-### 2.5 The Pregel Bulk-Synchronous Parallel (BSP) Computation Model
+---
+
+### 2.9 The GraphX Operator Zoo: Four Functional Families
+GraphX exposes an expressive, purely functional API organized into four primary operator families:
+
+```
+                          ┌───────────────────────────┐
+                          │   GraphX Operator Zoo     │
+                          └─────────────┬─────────────┘
+          ┌─────────────────────┬───────┴─────────────┬─────────────────────┐
+          ▼                     ▼                     ▼                     ▼
+   1. Structural         2. Property           3. Join               4. Neighborhood
+   - reverse             - mapVertices         - joinVertices        - aggregateMessages
+   - subgraph            - mapEdges            - outerJoinVertices   - inDegrees / outDegrees
+   - mask                - mapTriplets                               - collectNeighborIds
+```
+
+1. **Structural Operators:** Modify graph topology without altering vertex or edge attributes:
+   - `reverse`: Flips the direction of every edge ($u \to v$ becomes $v \to u$).
+   - `subgraph(epred, vpred)`: Filters the graph, retaining only vertices and edges satisfying user-defined predicate functions.
+   - `mask(anotherGraph)`: Retains only the topological intersection of two graphs.
+2. **Property Operators:** Transform attribute payloads while preserving topology:
+   - `mapVertices((id, attr) => newAttr)`: Pure function updating vertex data.
+   - `mapEdges(edge => newAttr)`: Pure function updating edge weights.
+   - `mapTriplets(triplet => newAttr)`: Updates edge weights with access to source and destination vertex attributes.
+3. **Join Operators:** Enrich graph attributes from external distributed RDDs:
+   - `joinVertices(tableRDD)((id, oldAttr, tableVal) => newAttr)`: Inner join with external RDD.
+   - `outerJoinVertices(tableRDD)((id, oldAttr, optTableVal) => newAttr)`: Left outer join handling missing keys via `Option[T]`.
+4. **Neighborhood Aggregation (`aggregateMessages`):**
+   The computational engine powering Pregel. Replaces the legacy `mapReduceTriplets`:
+   ```scala
+   graph.aggregateMessages[Double](
+     sendMsg = triplet => {
+       // Sends a message along outgoing edges
+       triplet.sendToDst(triplet.srcAttr + triplet.attr)
+     },
+     mergeMsg = (a, b) => math.min(a, b) // Combines incoming messages at destination
+   )
+   ```
+
+---
+
+### 2.10 The Pregel Bulk-Synchronous Parallel (BSP) Computation Model
 How will Day 8 compute the shortest path across the graph? GraphX implements Google's **Pregel** framework, which follows the **Bulk-Synchronous Parallel (BSP)** computational model:
 
 ```
@@ -219,7 +379,9 @@ Repeat until all vertices vote to halt and no messages remain in transit.
 ```
 This message-passing approach converges in $O(\text{diameter})$ supersteps without a single relational join.
 
-### 2.6 Graph Connectivity: Weakly vs. Strongly Connected Components
+---
+
+### 2.11 Graph Connectivity Theory: Weakly vs. Strongly Connected Components
 A fundamental question in smart city road networks is **reachability**: *Can an emergency vehicle travel from any intersection to every other intersection in the city?*
 
 1. **Undirected Graph Connectivity:** An undirected graph is connected if there is a path between every pair of vertices.
@@ -238,6 +400,34 @@ A fundamental question in smart city road networks is **reachability**: *Can an 
 
 **Empirical Application to Urbanix Day 7:**
 Our checked-in dataset has 40 directed edges representing 20 bidirectional corridors (100% reciprocity). GraphX's `ConnectedComponents.run(graph)` computes exactly **1 weakly connected component**. By the Symmetrical Reciprocity Theorem, the Urbanix road network is **strictly strongly connected ($k=1$)**, proving that every intersection is reachable from every other intersection.
+
+---
+
+### 2.12 Transportation Systems Physics, Geodesy & Dynamic Travel Time Formulation
+Transportation engineering links graph theory to physical kinematics and spatial geodesy.
+
+#### 1. Geodetic Coordinates & The Haversine Distance Formula
+Each intersection vertex in `data/intersections.csv` carries WGS-84 spherical coordinates: Latitude ($\phi$) and Longitude ($\lambda$). The great-circle distance $d_{\text{haversine}}$ between two GPS coordinates on Earth (mean radius $R \approx 6,371.0\text{ km}$) is computed as:
+$$d = 2R \arcsin\left(\sqrt{\sin^2\left(\frac{\Delta \phi}{2}\right) + \cos(\phi_1)\cos(\phi_2)\sin^2\left(\frac{\Delta \lambda}{2}\right)}\right)$$
+In physical road networks, the actual road length ($d_{\text{base}}$) is always greater than or equal to the straight-line Haversine distance due to road curvature and terrain elevation ($d_{\text{base}} \ge d_{\text{haversine}}$).
+
+#### 2. The Fundamental Diagram of Traffic Flow (Greenshields Model)
+Traffic dynamics on any road segment follow the **Fundamental Equation of Traffic Flow**:
+$$q = k \cdot v$$
+Where:
+- $q$: Traffic Flow rate (vehicles per hour, $\text{veh/h}$).
+- $k$: Traffic Density (vehicles per kilometer, $\text{veh/km}$).
+- $v$: Space Mean Speed ($\text{km/h}$).
+
+As vehicle density $k$ approaches jam density $k_{\text{jam}}$, traffic velocity collapses toward zero ($v \to 0$), causing traffic flow to break down into gridlock.
+
+#### 3. Dynamic Travel Time Formulation for Day 8
+In Day 7, the static road weight is `base_distance_km` ($d_e$). In Day 8, edge weights will transition to **Estimated Travel Time** ($t_e$):
+$$t_e = \frac{d_e}{\max(v_e, 5.0)}$$
+Where:
+- $d_e$: Physical segment length in kilometers.
+- $v_e$: Predicted traffic speed in $\text{km/h}$ produced by Weekend 2's ML models for the corresponding zone.
+- $\max(v_e, 5.0)$: A physical safety floor preventing division by zero or infinite travel times during severe traffic standstills.
 
 ---
 
@@ -264,7 +454,38 @@ For an engineer transitioning from Python/PySpark, Scala can initially feel fore
 
 ## 🛠️ 4. Build System, JVM Toolchain & Binary Compatibility Architecture
 
-### 4.1 The Scala Binary ABI Compatibility Rule
+### 4.1 The JVM Execution Engine & Memory Architecture
+When running distributed graph computations, Apache Spark executes inside the **Java Virtual Machine (JVM)** across driver and executor processes:
+
+```
++───────────────────────────────────────────────────────────────────────────+
+|                           JVM Process Memory Layout                       |
+|                                                                           |
+|  ┌─────────────────────────────────────────────────────────┐  ┌────────┐  |
+|  │                       JVM Heap                          │  │Metaspace│  |
+|  │  ┌───────────────────────┐  ┌────────────────────────┐  │  │(Classes)│  |
+|  │  │  Young Generation     │  │   Old Generation       │  │  └────────┘  |
+|  │  │  (Eden + Survivors)   │  │   (Long-lived RDDs)    │  │  ┌────────┐  |
+|  │  └───────────────────────┘  └────────────────────────┘  │  │Off-Heap │  |
+|  │  ┌───────────────────────────────────────────────────┐  │  │(Netty,  │  |
+|  │  │          Spark Unified Memory Pool (60%)          │  │  │ Unroll) │  |
+|  │  │   [ Execution Memory ]  │   [ Storage Memory ]    │  │  └────────┘  |
+|  │  │   (Shuffles, Aggs)      │   (Cached Graphs, RDDs) │  │              |
+|  │  └───────────────────────────────────────────────────┘  │              |
+|  └─────────────────────────────────────────────────────────┘              |
++───────────────────────────────────────────────────────────────────────────+
+```
+
+1. **Young Generation (Eden & Survivor Spaces):** Short-lived objects (e.g., intermediate tuple closures created during `rdd.map`) are allocated here. Fast Minor GC cycles collect them rapidly.
+2. **Old Generation (Tenured Space):** Long-lived objects (such as cached GraphX `VertexRDD` and `EdgeRDD` partitions) are promoted here.
+3. **Spark Unified Memory Manager:** Spark allocates $60\%$ of total heap to unified execution and storage memory:
+   - **Storage Memory:** Holds cached graph partitions and routing tables.
+   - **Execution Memory:** Holds shuffle buffers, message queues during Pregel supersteps, and aggregation hash maps.
+4. **Metaspace:** Stores class metadata, bytecode, and reflection data outside the JVM heap.
+
+---
+
+### 4.2 The Scala Binary ABI Compatibility Rule
 In the Python ecosystem, a package compiled for Python 3.9 can often run seamlessly in Python 3.10. 
 In the Scala and JVM ecosystem, **binary interface (ABI) compatibility is strictly guaranteed only across point releases of the same minor version**:
 - Bytecode compiled with Scala `2.12.18` can link with libraries built for Scala `2.12.0` through `2.12.19`.
@@ -274,7 +495,25 @@ In the Scala and JVM ecosystem, **binary interface (ABI) compatibility is strict
   java.lang.IncompatibleClassChangeError: ...
   ```
 
-### 4.2 Apache Spark 3.5.0 Binary Matrix
+---
+
+### 4.3 SBT Build Lifecycle, Task Graph & Incremental Compilation (Zinc)
+`sbt` models software builds as a **Directed Acyclic Graph (DAG) of Tasks and Settings**:
+1. **Settings vs. Tasks:**
+   - **Setting:** A value evaluated once at project load time (e.g., `scalaVersion := "2.12.18"`, `name := "urbanix-graphx-reroute"`).
+   - **Task:** A computation executed on demand every time it is triggered (e.g., `compile`, `test`, `run`).
+2. **Zinc Incremental Compilation:**
+   Instead of re-compiling all source files on every build (like traditional `scalac`), `sbt` uses **Zinc**:
+   - Analyzes class dependency trees at the symbol level.
+   - If only `RoadGraphBuilderSpec.scala` is modified, Zinc recompiles only the test class without touching `RoadGraphBuilder.scala`, dropping compilation times from 20 seconds to 2 seconds.
+3. **Configuration Scopes:**
+   - `Compile`: Production sources under `src/main/scala/`.
+   - `Test`: Test sources under `src/test/scala/`.
+   - `Runtime`: Runtime classpath dependencies.
+
+---
+
+### 4.4 Apache Spark 3.5.0 Binary Matrix & Local Distribution Isolation
 The official Apache Spark 3.5.0 pre-built binaries published to Maven Central are compiled against **Scala 2.12**. Therefore, Urbanix strictly pins:
 - Compiler: `Scala 2.12.18`
 - Build Tool: `sbt 1.9.9` (pinned in `project/build.properties`)
@@ -283,7 +522,9 @@ The official Apache Spark 3.5.0 pre-built binaries published to Maven Central ar
 > [!CAUTION]
 > **Local Spark Installation Warning:** The local host environment contains an unmanaged Spark distribution at `C:\spark\spark-3.5.9-bin-hadoop3` compiled against Scala 2.13. **Do not execute `spark-submit` using this local binary for Day 7**, as doing so mixes Scala 2.13 with our Scala 2.12 GraphX code. All compilation, testing, and execution must occur strictly through `sbt.bat`.
 
-### 4.3 Annotated `services/graphx-reroute/build.sbt`
+---
+
+### 4.5 Annotated `services/graphx-reroute/build.sbt`
 ```scala
 name := "urbanix-graphx-reroute"
 version := "0.1.0"
@@ -307,8 +548,6 @@ libraryDependencies ++= Seq(
 )
 
 // Fork separate JVM for 'run' and 'test' to prevent Spark context leakage
-fork := true
-Test / logBuffered := false
 ```
 
 ---
