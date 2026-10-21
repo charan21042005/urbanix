@@ -8,8 +8,8 @@
 ![Apache Spark](https://img.shields.io/badge/Apache%20Spark-3.5.1_(UI%3A%208081)-orange?style=for-the-badge&logo=apachespark)
 ![Scala](https://img.shields.io/badge/Scala-GraphX-dc322f?style=for-the-badge&logo=scala)
 ![Docker](https://img.shields.io/badge/Docker-Compose_Cluster-2496ED?style=for-the-badge&logo=docker)
-![Milestone](https://img.shields.io/badge/Day_6-Complete_(Live_MLlib_Inference_&_Checkpoint_Recovery)-brightgreen?style=for-the-badge)
-![Tests](https://img.shields.io/badge/Tests-63%2F63_Passing_(19_Prod_+_14_Stream_+_11_Split_+_9_ML_+_10_Inf)-brightgreen?style=for-the-badge)
+![Milestone](https://img.shields.io/badge/Day_7-Complete_(Scala_+_sbt_Setup_&_Spark_GraphX_Road--Graph_Construction)-brightgreen?style=for-the-badge)
+![Tests](https://img.shields.io/badge/Tests-73%2F73_Passing_(19_Prod_+_14_Stream_+_11_Split_+_9_ML_+_10_Inf_+_10_GraphX)-brightgreen?style=for-the-badge)
 ![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)
 
 *A distributed Kafka + Spark platform for streaming urban telemetry, forecasting localized traffic and environmental risk, and supporting congestion-aware route planning.*
@@ -165,9 +165,9 @@ Recommended Route
 | **M1 — Sensor Simulation Layer** | Ingests & replays verified public telemetry (Traffic, AQI, Weather) with delivery callbacks | Python 3.10, `kafka-python-ng` | **COMPLETE ✅** (Day 2) | [`services/producers/README.md`](services/producers/README.md) |
 | **M2 — Kafka Streaming Core** | Distributed event messaging backbone & topic provisioning | Apache Kafka, Zookeeper | **COMPLETE ✅** (Day 1) | [`infra/README.md`](infra/README.md) |
 | **M3 — Structured Streaming + SQL** | Real-time multi-stream window joins, watermarking & feature tables | PySpark 3.5.1, Spark SQL | **COMPLETE ✅** (Day 3) | [`services/streaming/README.md`](services/streaming/README.md) |
-| **M4 — Spark MLlib Forecasting** | Feature engineering, zero-leakage split & speed/pollution regressor models | Spark MLlib | **IN PROGRESS ⏳** (Day 4 Complete; Day 5 Next) | [`services/streaming/README.md`](services/streaming/README.md) |
-| **M5 — Scala Spark GraphX Rerouting** | Dynamic road network graph modeling & congestion-aware pathfinding | Scala 2.12, GraphX | 📅 Planned (Days 6–7) | [`services/graphx-reroute/README.md`](services/graphx-reroute/README.md) |
-| **M6 — Geospatial Dashboard** | Real-time 3D operator dashboard & REST/WebSocket API | React 18, FastAPI, deck.gl | 📅 Planned (Days 8–10) | [`dashboard/README.md`](dashboard/README.md) |
+| **M4 — Spark MLlib Forecasting** | Feature engineering, zero-leakage split & speed/pollution regressor models | Spark MLlib | **COMPLETE ✅** (Days 4–6) | [`services/streaming/README.md`](services/streaming/README.md) |
+| **M5 — Scala Spark GraphX Rerouting** | Dynamic road network graph modeling & congestion-aware pathfinding | Scala 2.12, GraphX | **DAY 7 COMPLETE ✅** (Road Graph Foundation; Day 8 Next) | [`services/graphx-reroute/README.md`](services/graphx-reroute/README.md) |
+| **M6 — Geospatial Dashboard** | Real-time 3D operator dashboard & REST/WebSocket API | React 18, FastAPI, deck.gl | 📅 Planned (Days 9–10) | [`dashboard/README.md`](dashboard/README.md) |
 
 ## 🛠️ Technology Stack
 <details>
@@ -206,7 +206,7 @@ python -m venv services\streaming\venv
 .\services\streaming\venv\Scripts\pip install -r services\streaming\requirements.txt
 ```
 
-### 3. Run Automated Full Test Suite (63/63 Tests Passing)
+### 3. Run Automated Full Test Suite (73/73 Tests Passing)
 ```powershell
 # Day 2 Producer tests (19 tests):
 .\services\producers\venv\Scripts\pytest services/producers/tests -v
@@ -222,6 +222,9 @@ python -m venv services\streaming\venv
 
 # Day 6 Streaming Live Inference & Checkpoint tests (10 tests):
 .\services\streaming\venv\Scripts\pytest services/streaming/tests/test_streaming_inference.py -v
+
+# Day 7 Scala Spark GraphX Road-Graph tests (10 tests):
+cd services/graphx-reroute; .\sbt.bat --batch test; cd ../..
 ```
 
 ### 4. Execute Pipeline: Features, Splits, Training & Live Inference

@@ -26,6 +26,8 @@ Thumbs.db
 # Data & Output
 data/*.csv
 !data/grid_zones.csv
+!data/intersections.csv
+!data/roads.csv
 data/*.json
 data/*.parquet
 !data/.gitkeep

@@ -1,13 +1,14 @@
 # 📅 Urbanix Daily Engineering Journal & Milestone Tracker (`_day-notes/`)
 
-![Roadmap Progress](https://img.shields.io/badge/Progress-Day_6_of_12_Complete_(50.0%25)-brightgreen)
+![Roadmap Progress](https://img.shields.io/badge/Progress-Day_7_of_12_Complete_(58.3%25)-brightgreen)
 ![Day 1 Status](https://img.shields.io/badge/Day_1-Verified_&_Closed-brightgreen)
 ![Day 2 Status](https://img.shields.io/badge/Day_2-Verified_&_Closed-brightgreen)
 ![Day 3 Status](https://img.shields.io/badge/Day_3-Verified_&_Closed-brightgreen)
 ![Day 4 Status](https://img.shields.io/badge/Day_4-Verified_&_Closed-brightgreen)
 ![Day 5 Status](https://img.shields.io/badge/Day_5-Verified_&_Closed-brightgreen)
 ![Day 6 Status](https://img.shields.io/badge/Day_6-Verified_&_Closed-brightgreen)
-![Day 7 Status](https://img.shields.io/badge/Day_7-Active_Next-blue)
+![Day 7 Status](https://img.shields.io/badge/Day_7-Verified_&_Closed-brightgreen)
+![Day 8 Status](https://img.shields.io/badge/Day_8-Active_Next-blue)
 
 > [!WARNING]
 > **DEVELOPMENT & VIVA ARTIFACT NOTICE**
@@ -90,8 +91,8 @@ Phase 1: Foundation (COMPLETE)        Phase 2: Analytics & Models (COMPLETE)    
 | **04** | **Feature Engineering & Chronological Split** | Spark MLlib, VectorAssembler, StringIndexer, Zero-Leakage Split | **COMPLETE ✅** | [`day-04/DAY_04_FEATURE_ENGINEERING_REPORT.md`](file:///c:/Users/Tokachichu%20SriCharan/OneDrive/Documents/GitHub/urbanix/_day-notes/day-04/DAY_04_FEATURE_ENGINEERING_REPORT.md) |
 | **05** | **MLlib Regression & Forecasting Evaluation** | Spark MLlib, Linear Regression, Decision Tree Regressor, Evaluator | **COMPLETE ✅** | [`day-05/DAY_05_ML_FORECASTING_REPORT.md`](file:///c:/Users/Tokachichu%20SriCharan/OneDrive/Documents/GitHub/urbanix/_day-notes/day-05/DAY_05_ML_FORECASTING_REPORT.md) |
 | **06** | **Live MLlib Streaming Inference & Checkpoints** | Spark Structured Streaming, MLlib Deserialization, Live Forecasting, Crash Recovery | **COMPLETE ✅** | [`day-06/DAY_06_LIVE_INFERENCE_REPORT.md`](file:///c:/Users/Tokachichu%20SriCharan/OneDrive/Documents/GitHub/urbanix/_day-notes/day-06/DAY_06_LIVE_INFERENCE_REPORT.md) |
-| **07** | **Data Storage Layer & Analytical Sinks** | Scala 2.12, Spark GraphX, Dijkstra Rerouting, Partitioned Parquet Sinks | **ACTIVE NEXT ⏳** | *Planned: `day-07/DAY_07_STORAGE_SINKS_REPORT.md`* |
-| **08** | **API Gateway & Telemetry Streaming** | FastAPI, Uvicorn, Asynchronous WebSockets, Pydantic | **PLANNED 📅** | *Planned: `day-08/DAY_08_FASTAPI_GATEWAY_REPORT.md`* |
+| **07** | **Scala + sbt Setup, Spark GraphX Road Graph** | Scala 2.12.18, sbt 1.9.9, Spark GraphX 3.5.0, ScalaTest, Road Network Topology | **COMPLETE ✅** | [`day-07/DAY_07_GRAPHX_CONSTRUCTION_REPORT.md`](file:///c:/Users/Tokachichu%20SriCharan/OneDrive/Documents/GitHub/urbanix/_day-notes/day-07/DAY_07_GRAPHX_CONSTRUCTION_REPORT.md) |
+| **08** | **Congestion-Weighted Shortest Paths** | Spark GraphX, ShortestPaths / Pregel, Dynamic Weights, Speed Rerouting | **ACTIVE NEXT ⏳** | *Planned: `day-08/DAY_08_SHORTEST_PATHS_REPORT.md`* |
 | **09** | **Geospatial Dashboard Core** | React 18, Vite, MapLibre GL, deck.gl 3D Hexagonal Heatmaps | **PLANNED 📅** | *Planned: `day-09/DAY_09_DASHBOARD_CORE_REPORT.md`* |
 | **10** | **Interactive Rerouting & Trend UI** | React Components, Recharts, Origin-Destination Path Comparator | **PLANNED 📅** | *Planned: `day-10/DAY_10_DASHBOARD_INTEGRATION_REPORT.md`* |
 | **11** | **End-to-End Stress Testing & Chaos Verification** | Load Testing, Ingestion Latency Benchmarks, Broker Crash Recovery | **PLANNED 📅** | *Planned: `day-11/DAY_11_TESTING_VERIFICATION_REPORT.md`* |
@@ -174,6 +175,18 @@ Phase 1: Foundation (COMPLETE)        Phase 2: Analytics & Models (COMPLETE)    
   * Implemented and executed crash-and-restart recovery harness (`test_checkpoint_recovery.py`) with durable checkpointing (`infra/checkpoints/traffic/`); proved state recovery and zero record loss.
   * Formally audited and documented at-least-once delivery guarantees for append-mode Parquet sinks.
   * Authored 10 automated tests in `test_streaming_inference.py` and independent verifier `verify_inference.py` (63/63 total tests passing across project).
+
+### Day 7: Scala + sbt Setup, Spark GraphX Road-Graph Construction
+* **Report:** [`day-07/DAY_07_GRAPHX_CONSTRUCTION_REPORT.md`](file:///c:/Users/Tokachichu%20SriCharan/OneDrive/Documents/GitHub/urbanix/_day-notes/day-07/DAY_07_GRAPHX_CONSTRUCTION_REPORT.md)
+* **Key Achievements:**
+  * Scaffolded hermetic Scala/sbt module (`services/graphx-reroute/`) with pinned Scala 2.12.18, sbt 1.9.9, and Apache Spark 3.5.0 (`spark-core`, `spark-sql`, `spark-graphx`, `scalatest`).
+  * Addressed binary ABI compatibility between Spark 3.5.0 Maven Central artifacts and Scala 2.12.
+  * Authored source-grounded metropolitan road network datasets: `data/intersections.csv` (20 intersections spanning 5 zones) and `data/roads.csv` (40 directed segments representing 20 bidirectional corridors).
+  * Built `RoadGraphBuilder.scala` creating a genuine `Graph[String, Double]` property graph object with vertex name and base road distance attributes.
+  * Implemented `auditGraph()` verifying exact vertex and edge count reconciliation (20 vertices, 40 edges, 0 dangling endpoints, 0 self-loops).
+  * Authored 10-test automated suite in `RoadGraphBuilderSpec.scala` testing basic construction, deterministic ID mapping, duplicate detection, missing endpoints, invalid attributes, directionality, self-loops, and GraphX operators (`triplets`, `inDegrees`, `outDegrees`, `subgraph`).
+  * Verified structural reproducibility across two independent JVM invocations (`sbt run`).
+  * Re-verified Days 1–6 regression matrix (73/73 total tests passing across project; 63 Python + 10 Scala).
 
 ---
 

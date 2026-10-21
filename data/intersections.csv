@@ -1,0 +1,21 @@
+id,name,zone_id,latitude,longitude
+1,Grand Ave & 1st St,zone_1,34.0549,-118.2498
+2,Broadway & 7th St,zone_1,34.0452,-118.2543
+3,Figueroa & Wilshire Blvd,zone_1,34.0506,-118.2599
+4,Main St & 4th St,zone_1,34.0485,-118.2464
+5,Burbank Blvd & Sepulveda,zone_2,34.1722,-118.4662
+6,Reseda Blvd & Ventura Blvd,zone_2,34.1678,-118.5361
+7,Van Nuys & Victory Blvd,zone_2,34.1867,-118.4487
+8,Balboa & Sherman Way,zone_2,34.2012,-118.5011
+9,Colorado Blvd & Fair Oaks,zone_3,34.1458,-118.1504
+10,Pasadena Ave & Foothill Blvd,zone_3,34.1523,-118.1322
+11,Rosemead & Huntington Dr,zone_3,34.1039,-118.0731
+12,Azusa Ave & Foothill Blvd,zone_3,34.1337,-117.9076
+13,Compton Blvd & Long Beach Blvd,zone_4,33.8958,-118.2251
+14,Slauson & Central Ave,zone_4,33.9892,-118.2564
+15,Pico Rivera & Whittier Blvd,zone_4,33.9984,-118.0874
+16,Firestone Blvd & Atlantic Ave,zone_4,33.9572,-118.1852
+17,Ocean Blvd & Pine Ave,zone_5,33.7670,-118.1924
+18,Anaheim St & Long Beach Blvd,zone_5,33.7782,-118.1893
+19,Terminal Island & Seaside Fwy,zone_5,33.7489,-118.2321
+20,Pacific Coast Hwy & 7th St,zone_5,33.7638,-118.1189

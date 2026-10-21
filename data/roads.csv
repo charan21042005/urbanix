@@ -1,0 +1,41 @@
+src_id,dst_id,base_distance_km,road_name,speed_limit_kmh
+1,2,1.2,Grand Ave,45.0
+2,1,1.2,Grand Ave,45.0
+2,3,0.9,7th St,40.0
+3,2,0.9,7th St,40.0
+1,4,0.8,1st St,40.0
+4,1,0.8,1st St,40.0
+3,5,18.2,US-101 North Hollywood Fwy,105.0
+5,3,18.2,US-101 South Hollywood Fwy,105.0
+5,6,6.5,Ventura Blvd,55.0
+6,5,6.5,Ventura Blvd,55.0
+5,7,2.3,Sepulveda Blvd,60.0
+7,5,2.3,Sepulveda Blvd,60.0
+7,8,5.1,Sherman Way,60.0
+8,7,5.1,Sherman Way,60.0
+1,9,14.5,I-110 North / CA-110 Arroyo Fwy,90.0
+9,1,14.5,I-110 South / CA-110 Arroyo Fwy,90.0
+9,10,1.8,Colorado Blvd,50.0
+10,9,1.8,Colorado Blvd,50.0
+9,11,7.2,Rosemead Blvd,65.0
+11,9,7.2,Rosemead Blvd,65.0
+10,12,18.5,I-210 East Foothill Fwy,105.0
+12,10,18.5,I-210 West Foothill Fwy,105.0
+2,14,6.3,I-110 South Harbor Fwy,105.0
+14,2,6.3,I-110 North Harbor Fwy,105.0
+13,14,10.4,Central Ave,55.0
+14,13,10.4,Central Ave,55.0
+14,16,6.8,Firestone Blvd,60.0
+16,14,6.8,Firestone Blvd,60.0
+11,15,12.0,I-605 South San Gabriel Fwy,105.0
+15,11,12.0,I-605 North San Gabriel Fwy,105.0
+15,16,9.8,Whittier Blvd,60.0
+16,15,9.8,Whittier Blvd,60.0
+13,18,13.1,I-710 South Long Beach Fwy,105.0
+18,13,13.1,I-710 North Long Beach Fwy,105.0
+17,18,1.4,Long Beach Blvd,45.0
+18,17,1.4,Long Beach Blvd,45.0
+17,19,4.2,Seaside Fwy / CA-47,80.0
+19,17,4.2,Seaside Fwy / CA-47,80.0
+18,20,6.7,Pacific Coast Hwy,70.0
+20,18,6.7,Pacific Coast Hwy,70.0
