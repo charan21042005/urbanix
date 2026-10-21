@@ -45,13 +45,15 @@ Where:
                         <-- Edge (base_dist = 1.2 km) --
 ```
 
-### 2.1 Metropolitan Road Topology
-The network spans **20 intersections** and **40 directed edges** (20 bidirectional road corridors) covering all five Urbanix operational zones:
+### 2.1 Metropolitan Road Topology & Provenance
+The road network is a **synthetic demonstration topology** designed specifically to model inter-zone highway and arterial connectivity across the five Urbanix operational zones. It provides illustrative coordinates and road distances for distributed graph algorithm verification:
 - **`zone_1` (Downtown Core / CBD)**: 4 nodes (1, 2, 3, 4) — high density arterial grid.
 - **`zone_2` (San Fernando Valley)**: 4 nodes (5, 6, 7, 8) — suburban grid connected via US-101.
 - **`zone_3` (San Gabriel Valley / Pasadena)**: 4 nodes (9, 10, 11, 12) — foothill arterials connected via I-210/I-110.
 - **`zone_4` (South Central Corridor / Pico Rivera)**: 4 nodes (13, 14, 15, 16) — transit spine connected via I-110/I-605.
 - **`zone_5` (Harbor / Long Beach Port)**: 4 nodes (17, 18, 19, 20) — port logistics corridor connected via I-710.
+
+Total: **20 intersections** and **40 directed edges** (20 bidirectional road corridors). Because every road corridor has directed segments in both directions ($u \to v$ and $v \to u$), the network has 100% reciprocity / symmetry. Consequently, the weakly connected component count ($k=1$) is mathematically identical to the strongly connected component count ($k=1$).
 
 ---
 
@@ -66,10 +68,10 @@ services/graphx-reroute/
 ├── src/
 │   ├── main/
 │   │   └── scala/
-│   │       └── RoadGraphBuilder.scala # Graph construction, loader, & audit logic
+│   │       └── RoadGraphBuilder.scala # Two-phase validation, GraphX construction & audit logic
 │   └── test/
 │       └── scala/
-│           └── RoadGraphBuilderSpec.scala # 10-test automated verification suite
+│           └── RoadGraphBuilderSpec.scala # 13-test automated verification suite
 └── README.md                          # Architecture and operational documentation
 ```
 
@@ -104,7 +106,7 @@ cd services/graphx-reroute
 .\sbt.bat --batch compile
 ```
 
-### 4.2 Run the Automated Test Suite (10 Tests)
+### 4.2 Run the Automated Test Suite (13 Tests)
 Executes all unit tests in `RoadGraphBuilderSpec.scala`:
 ```powershell
 .\sbt.bat --batch test
@@ -112,14 +114,17 @@ Executes all unit tests in `RoadGraphBuilderSpec.scala`:
 The test suite covers:
 1. Basic graph construction against fixtures.
 2. Deterministic vertex ID mapping across repeated runs.
-3. Duplicate intersection identifier detection.
-4. Missing road endpoint (dangling edge) detection.
-5. Invalid/non-positive edge attribute handling.
-6. Edge directionality preservation (no phantom reverse edges).
-7. Self-loop detection (`srcId == dstId`).
-8. Empty dataset edge cases.
-9. Source-count reconciliation.
+3. Production validator detection of duplicate intersection IDs.
+4. Production graph audit detection of dangling edges and GraphX phantom vertices.
+5. Production validator detection of invalid (negative, zero, NaN, infinite) road distances.
+6. Edge directionality preservation (no phantom reverse edges fabricated).
+7. Production validator and audit detection of self-loops (`src_id == dst_id`).
+8. Empty dataset edge cases (0 vertices, 0 edges).
+9. Source-count reconciliation against graph counts.
 10. Native GraphX operations (`triplets`, `inDegrees`, `outDegrees`, `subgraph`).
+11. Production `validateAndBuildGraph` strict fail-fast policy (`IllegalArgumentException`).
+12. Production validator distinction between accidental duplicate records and legitimate reverse edges.
+13. Verified topology audit on genuine checked-in CSVs (20 vertices, 40 edges, 1 component, 100% reciprocity).
 
 ### 4.3 Run the Road Graph Builder
 Executes `RoadGraphBuilder.main()`, constructing the graph from `data/intersections.csv` and `data/roads.csv`:
@@ -129,22 +134,37 @@ Executes `RoadGraphBuilder.main()`, constructing the graph from `data/intersecti
 Expected output:
 ```text
 ======================================================================
-URBANIX DAY 7: SPARK GRAPHX ROAD-GRAPH CONSTRUCTION & AUDIT
+URBANIX DAY 7: SPARK GRAPHX ROAD-GRAPH CONSTRUCTION & RIGOROUS AUDIT
 ======================================================================
 [*] Loading Intersections Source : .../data/intersections.csv
 [*] Loading Roads Source         : .../data/roads.csv
-[*] Source CSV Rows: 20 intersections, 40 road segments
 ----------------------------------------------------------------------
-GRAPH INTEGRITY & TOPOLOGY AUDIT REPORT
+PHASE 1: PRE-CONSTRUCTION SOURCE DATA VALIDATION
 ----------------------------------------------------------------------
-[*] Source Intersections (Vertices) : 20
-[*] Accepted Graph Vertices         : 20
-[*] Source Road Segments (Edges)    : 40
-[*] Accepted Graph Edges            : 40
-[*] Dangling Edges (Missing Endpts) : 0
-[*] Self-Loop Edges                 : 0
+[*] Total Source Intersection Rows : 20
+[*] Distinct Intersection IDs      : 20
+[*] Duplicate Intersection IDs     : 0
+[*] Null or Invalid Node IDs       : 0
+[*] Blank Intersection Names       : 0
+[*] Total Source Road Segments     : 40
+[*] Exact Duplicate Road Records   : 0
+[*] Invalid Endpoint Records       : 0
+[*] Invalid Distance Records       : 0
+[*] Self-Loop Records              : 0
+[*] Source Data Validation Status  : [PASS] VALID
+----------------------------------------------------------------------
+PHASE 2: GRAPHX PROPERTY GRAPH CONSTRUCTION & AUDIT
+----------------------------------------------------------------------
+[*] Accepted Graph Vertices        : 20
+[*] Accepted Graph Edges           : 40
+[*] Dangling Edges (Missing Endpts): 0
+[*] Phantom GraphX Vertices        : 0
+[*] Self-Loop Edges                : 0
+[*] Weakly Connected Components    : 1
+[*] Directed Symmetry (Reciprocity): 100% Symmetric (Bidirectional Links)
 ======================================================================
 FINAL VERIFICATION: [PASS] GRAPH SIZE & TOPOLOGY MATCHES SOURCE DATA EXACTLY
+Road network graph is verified and ready for Day 8 shortest-path routing.
 ======================================================================
 ```
 
@@ -152,8 +172,13 @@ FINAL VERIFICATION: [PASS] GRAPH SIZE & TOPOLOGY MATCHES SOURCE DATA EXACTLY
 
 ## 5. Day 8 Integration Boundary
 
-Day 7 establishes the **validated static graph topology**. 
+Day 7 strictly establishes the **validated static graph topology** and structural integrity. 
 In **Day 8 (Congestion-Weighted Shortest Path)**:
 1. Each road segment's static weight (`base_distance_km`) will be dynamically adjusted using the live traffic speed predictions generated by the Day 5/6 MLlib models:
    $$\text{travel\_time\_hours} = \frac{\text{base\_distance\_km}}{\max(\text{predicted\_speed\_kmh}, 5.0)}$$
 2. GraphX's `Pregel` / `ShortestPaths` API will compute dynamic shortest travel-time routes from origin to destination intersections, demonstrating real-time rerouting as congestion spikes.
+3. Crucially, Day 7 maintains the clear distinction:
+   - **Intersection IDs (1..20)**: Physical graph vertices.
+   - **Sensor Zone IDs (`zone_1`..`zone_5`)**: Spatial regions aggregating streaming sensor feeds.
+   - **Static base distance**: Physical road geometry in kilometers.
+   - **Live speed predictions**: Dynamic edge weights applied at runtime in Day 8.

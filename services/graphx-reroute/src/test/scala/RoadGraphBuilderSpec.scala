@@ -1,18 +1,6 @@
 // ==============================================================================
 // Urbanix — Day 7: GraphX Road Network Rerouting Engine
-// RoadGraphBuilderSpec.scala — Automated Test Suite for GraphX Construction
-// ==============================================================================
-// Covers all mandatory Stage F verification scenarios:
-// Test 1  — Basic graph construction on synthetic fixture
-// Test 2  — Deterministic vertex ID mapping across repeated runs
-// Test 3  — Duplicate intersection identifiers detection
-// Test 4  — Missing road endpoints (dangling edges) detection
-// Test 5  — Invalid road attributes (negative / non-finite distance) handling
-// Test 6  — Road segment directionality preservation
-// Test 7  — Self-loops detection
-// Test 8  — Empty input handling
-// Test 9  — Source-count reconciliation on known fixture
-// Test 10 — Real GraphX operations (triplets, inDegrees, outDegrees, subgraph)
+// RoadGraphBuilderSpec.scala — Comprehensive Test Suite Exercising Production Validation
 // ==============================================================================
 
 package urbanix.graphx
@@ -24,8 +12,6 @@ import org.apache.spark.graphx._
 
 class RoadGraphBuilderSpec extends AnyFunSuite with BeforeAndAfterAll {
 
-  // 'lazy val' provides a stable identifier required for 'import spark.implicits._',
-  // initialized on first access and preserved for the duration of the test suite.
   lazy val spark: SparkSession = {
     val s = SparkSession.builder()
       .appName("RoadGraphBuilderSpec")
@@ -88,8 +74,8 @@ class RoadGraphBuilderSpec extends AnyFunSuite with BeforeAndAfterAll {
     assert(ids1.sameElements(Array(101L, 202L, 303L)))
   }
 
-  // --- TEST 3: Duplicate intersection identifiers ---
-  test("Test 3: Duplicate intersection IDs are detected and distinct counts reported") {
+  // --- TEST 3: Production validation of duplicate intersection identifiers ---
+  test("Test 3: Production validator flags duplicate intersection IDs and fails source audit") {
     import spark.implicits._
 
     val rawVerticesDF = Seq(
@@ -98,16 +84,22 @@ class RoadGraphBuilderSpec extends AnyFunSuite with BeforeAndAfterAll {
       (2L, "North B", "zone_2")
     ).toDF("id", "name", "zone_id")
 
-    val rawCount = rawVerticesDF.count()
-    val distinctCount = rawVerticesDF.select("id").distinct().count()
+    val validEdgesDF = Seq(
+      (1L, 2L, 3.5)
+    ).toDF("src_id", "dst_id", "base_distance_km")
 
-    assert(rawCount == 3)
-    assert(distinctCount == 2)
-    assert(rawCount > distinctCount, "Duplicate IDs must be detectable via count comparison")
+    // Exercise actual production validation code
+    val sourceReport = RoadGraphBuilder.validateSourceData(rawVerticesDF, validEdgesDF)
+
+    assert(sourceReport.intersectionsTotalRows == 3)
+    assert(sourceReport.intersectionsDistinctIdCount == 2)
+    assert(sourceReport.intersectionsDuplicateIdCount == 1)
+    assert(!sourceReport.isSourceValid, "Validator must reject datasets with duplicate intersection IDs")
+    assert(sourceReport.errorMessages.exists(_.contains("duplicate intersection ID")))
   }
 
-  // --- TEST 4: Missing road endpoints ---
-  test("Test 4: Missing road endpoints (dangling edges) are accurately flagged") {
+  // --- TEST 4: Production audit of missing road endpoints (dangling edges) ---
+  test("Test 4: Production graph audit flags dangling edges and GraphX phantom vertices") {
     import spark.implicits._
 
     val verticesDF = Seq(
@@ -115,32 +107,48 @@ class RoadGraphBuilderSpec extends AnyFunSuite with BeforeAndAfterAll {
       (2L, "Broadway & 7th", "zone_1")
     ).toDF("id", "name", "zone_id")
 
-    // Edge refers to nonexistent node 999
+    // Edge refers to nonexistent node 999L
     val edgesDF = Seq(
       (1L, 2L, 1.2),
       (1L, 999L, 15.0)
     ).toDF("src_id", "dst_id", "base_distance_km")
 
     val graph = RoadGraphBuilder.buildGraph(spark, verticesDF, edgesDF)
-    val summary = RoadGraphBuilder.auditGraph(graph, expectedVertexCount = 2, expectedEdgeCount = 2)
+
+    // Exercise actual production auditGraph method against source DataFrames
+    val summary = RoadGraphBuilder.auditGraph(graph, verticesDF, edgesDF)
 
     assert(summary.danglingEdgeCount == 1, "Graph audit must flag edge targeting nonexistent node 999")
+    assert(summary.phantomVertexCount == 1, "GraphX auto-inserts phantom vertex with null attr for node 999")
     assert(!summary.isValid, "Graph with dangling edges must fail validity check")
+    assert(summary.diagnostics.exists(_.contains("dangling edges")))
   }
 
-  // --- TEST 5: Invalid road attributes ---
-  test("Test 5: Invalid or non-positive road distance attributes are detectable") {
+  // --- TEST 5: Production validation of invalid road attributes ---
+  test("Test 5: Production validator flags negative, zero, and NaN road distances") {
     import spark.implicits._
 
-    val edgesDF = Seq(
+    val validVerticesDF = Seq(
+      (1L, "Node 1", "zone_1"),
+      (2L, "Node 2", "zone_1"),
+      (3L, "Node 3", "zone_1"),
+      (4L, "Node 4", "zone_1"),
+      (5L, "Node 5", "zone_1")
+    ).toDF("id", "name", "zone_id")
+
+    val invalidEdgesDF = Seq(
       (1L, 2L, 5.0),
       (2L, 3L, -1.0),      // Negative distance
       (3L, 4L, 0.0),       // Zero distance
       (4L, 5L, Double.NaN) // NaN distance
     ).toDF("src_id", "dst_id", "base_distance_km")
 
-    val invalidEdges = edgesDF.filter("base_distance_km <= 0.0 OR isnan(base_distance_km)").count()
-    assert(invalidEdges == 3, "Filter must capture negative, zero, and NaN distances")
+    // Exercise actual production validation code
+    val sourceReport = RoadGraphBuilder.validateSourceData(validVerticesDF, invalidEdgesDF)
+
+    assert(sourceReport.roadsInvalidDistanceCount == 3, "Validator must count all 3 invalid distances")
+    assert(!sourceReport.isSourceValid, "Validator must reject datasets with invalid road distances")
+    assert(sourceReport.errorMessages.exists(_.contains("non-positive, null, NaN, or infinite")))
   }
 
   // --- TEST 6: Directionality preservation ---
@@ -159,17 +167,15 @@ class RoadGraphBuilderSpec extends AnyFunSuite with BeforeAndAfterAll {
 
     val graph = RoadGraphBuilder.buildGraph(spark, verticesDF, edgesDF)
 
-    // Verify forward edge exists
     val forwardEdge = graph.edges.filter(e => e.srcId == 1L && e.dstId == 2L).count()
-    // Verify reverse edge does NOT exist
     val reverseEdge = graph.edges.filter(e => e.srcId == 2L && e.dstId == 1L).count()
 
     assert(forwardEdge == 1, "Forward edge must exist")
     assert(reverseEdge == 0, "Reverse edge must NOT be fabricated")
   }
 
-  // --- TEST 7: Self-loops detection ---
-  test("Test 7: Self-loops (src_id == dst_id) are audited and flagged") {
+  // --- TEST 7: Production detection of self-loops ---
+  test("Test 7: Production validator and audit flag self-loops (src_id == dst_id)") {
     import spark.implicits._
 
     val verticesDF = Seq(
@@ -181,11 +187,16 @@ class RoadGraphBuilderSpec extends AnyFunSuite with BeforeAndAfterAll {
       (1L, 1L, 0.5)
     ).toDF("src_id", "dst_id", "base_distance_km")
 
-    val graph = RoadGraphBuilder.buildGraph(spark, verticesDF, edgesDF)
-    val summary = RoadGraphBuilder.auditGraph(graph, expectedVertexCount = 1, expectedEdgeCount = 1)
+    // Test pre-construction validator
+    val sourceReport = RoadGraphBuilder.validateSourceData(verticesDF, edgesDF)
+    assert(sourceReport.roadsSelfLoopCount == 1)
+    assert(!sourceReport.isSourceValid)
 
-    assert(summary.selfLoopCount == 1, "Self-loop edge must be detected")
-    assert(!summary.isValid, "Graph with self-loops must fail validity check")
+    // Test post-construction graph audit
+    val graph = RoadGraphBuilder.buildGraph(spark, verticesDF, edgesDF)
+    val summary = RoadGraphBuilder.auditGraph(graph, verticesDF, edgesDF)
+    assert(summary.selfLoopCount == 1)
+    assert(!summary.isValid)
   }
 
   // --- TEST 8: Empty input handling ---
@@ -220,14 +231,15 @@ class RoadGraphBuilderSpec extends AnyFunSuite with BeforeAndAfterAll {
       (4L, 3L, 3.1)
     ).toDF("src_id", "dst_id", "base_distance_km")
 
-    val graph = RoadGraphBuilder.buildGraph(spark, verticesDF, edgesDF)
-    val summary = RoadGraphBuilder.auditGraph(graph, expectedVertexCount = 4, expectedEdgeCount = 6)
+    val (graph, summary) = RoadGraphBuilder.validateAndBuildGraph(spark, verticesDF, edgesDF, strict = true)
 
     assert(summary.isValid)
     assert(summary.graphVertexCount == 4)
     assert(summary.graphEdgeCount == 6)
     assert(summary.danglingEdgeCount == 0)
     assert(summary.selfLoopCount == 0)
+    assert(summary.weaklyConnectedComponentCount == 1)
+    assert(summary.isDirectedSymmetric)
   }
 
   // --- TEST 10: Real GraphX operations ---
@@ -269,5 +281,82 @@ class RoadGraphBuilderSpec extends AnyFunSuite with BeforeAndAfterAll {
     // Operator 4: subgraph (filter edges with distance < 5.0)
     val shortRoadsGraph = graph.subgraph(epred = edgeTriplet => edgeTriplet.attr < 5.0)
     assert(shortRoadsGraph.edges.count() == 2)
+  }
+
+  // --- TEST 11: Strict builder throws IllegalArgumentException on corrupt input ---
+  test("Test 11: Production validateAndBuildGraph throws IllegalArgumentException in strict mode on invalid data") {
+    import spark.implicits._
+
+    val verticesDF = Seq(
+      (1L, "Node 1", "zone_1"),
+      (2L, "Node 2", "zone_1")
+    ).toDF("id", "name", "zone_id")
+
+    val corruptedEdgesDF = Seq(
+      (1L, 2L, -5.0) // Invalid negative distance
+    ).toDF("src_id", "dst_id", "base_distance_km")
+
+    val ex = intercept[IllegalArgumentException] {
+      RoadGraphBuilder.validateAndBuildGraph(spark, verticesDF, corruptedEdgesDF, strict = true)
+    }
+    assert(ex.getMessage.contains("Source validation failed"))
+  }
+
+  // --- TEST 12: Exact duplicate records vs legitimate reverse-direction edges ---
+  test("Test 12: Production validator distinguishes accidental duplicates from valid bidirectional links") {
+    import spark.implicits._
+
+    val verticesDF = Seq(
+      (1L, "Node 1", "zone_1"),
+      (2L, "Node 2", "zone_1")
+    ).toDF("id", "name", "zone_id")
+
+    // Legitimate bidirectional edges (1 -> 2 and 2 -> 1)
+    val bidirectionalEdgesDF = Seq(
+      (1L, 2L, 3.0),
+      (2L, 1L, 3.0)
+    ).toDF("src_id", "dst_id", "base_distance_km")
+
+    val reportValid = RoadGraphBuilder.validateSourceData(verticesDF, bidirectionalEdgesDF)
+    assert(reportValid.roadsExactDuplicateRecordCount == 0, "Opposite direction (2->1) is NOT a duplicate of (1->2)")
+    assert(reportValid.isSourceValid)
+
+    // Accidental exact duplicate edge (1 -> 2 appears twice)
+    val accidentalDuplicateEdgesDF = Seq(
+      (1L, 2L, 3.0),
+      (1L, 2L, 3.0)
+    ).toDF("src_id", "dst_id", "base_distance_km")
+
+    val reportDuplicate = RoadGraphBuilder.validateSourceData(verticesDF, accidentalDuplicateEdgesDF)
+    assert(reportDuplicate.roadsExactDuplicateRecordCount == 1, "Repeated directed edge (1->2) must be flagged as duplicate")
+    assert(!reportDuplicate.isSourceValid)
+  }
+
+  // --- TEST 13: Topology audit of checked-in metropolitan road dataset ---
+  test("Test 13: Topology audit on genuine checked-in CSVs verifies strong connectivity via 100% symmetry") {
+    val intersectionsPath = RoadGraphBuilder.resolvePath(Seq(
+      "data/intersections.csv",
+      "../../data/intersections.csv",
+      "../data/intersections.csv"
+    ))
+    val roadsPath = RoadGraphBuilder.resolvePath(Seq(
+      "data/roads.csv",
+      "../../data/roads.csv",
+      "../data/roads.csv"
+    ))
+
+    val (intersectionsDF, roadsDF) = RoadGraphBuilder.loadDataFrames(spark, intersectionsPath, roadsPath)
+    val (graph, audit) = RoadGraphBuilder.validateAndBuildGraph(spark, intersectionsDF, roadsDF, strict = true)
+
+    assert(audit.isValid)
+    assert(audit.sourceVertexCount == 20)
+    assert(audit.graphVertexCount == 20)
+    assert(audit.sourceEdgeCount == 40)
+    assert(audit.graphEdgeCount == 40)
+    assert(audit.danglingEdgeCount == 0)
+    assert(audit.phantomVertexCount == 0)
+    assert(audit.selfLoopCount == 0)
+    assert(audit.weaklyConnectedComponentCount == 1, "Graph must have 1 connected component")
+    assert(audit.isDirectedSymmetric, "All 20 road links must be bidirectional (symmetric directed graph)")
   }
 }
