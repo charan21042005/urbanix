@@ -325,4 +325,30 @@ class ShortestPathPregelSpec extends AnyFunSuite with Matchers with BeforeAndAft
       r.path.last shouldBe r.destinationId
     }
   }
+
+  // ============================================================================
+  // CATEGORY 6: CRITICAL PREGEL CONVERGENCE & ITERATION BOUND DEFENSE
+  // ============================================================================
+
+  test("Convergence Test 19: User-supplied insufficient iteration limit throws IllegalStateException when improvements remain possible") {
+    val graph = buildFourNodeBenchmarkGraph()
+    // In the 4-node benchmark, reaching destination D requires 2 edge hops (A -> C -> D).
+    // An iteration limit of 1 terminates before messages can propagate from C to D.
+    // The algorithm must detect and report incomplete convergence rather than presenting incomplete results.
+    val ex = the[IllegalStateException] thrownBy {
+      ShortestPathPregel.runShortestPath(graph, origin = 1L, maxIterations = Some(1))
+    }
+    ex.getMessage should include("did not converge within the configured iteration limit")
+    ex.getMessage should include("further travel-time improvements remain possible")
+  }
+
+  test("Convergence Test 20: Non-positive maxIterations parameter throws IllegalArgumentException") {
+    val graph = buildFourNodeBenchmarkGraph()
+    an[IllegalArgumentException] should be thrownBy {
+      ShortestPathPregel.runShortestPath(graph, origin = 1L, maxIterations = Some(0))
+    }
+    an[IllegalArgumentException] should be thrownBy {
+      ShortestPathPregel.runShortestPath(graph, origin = 1L, maxIterations = Some(-2))
+    }
+  }
 }

@@ -153,6 +153,11 @@ object ShortestPathPregel {
     // 5. Determine maximum iteration bound:
     // By the Bellman-Ford theorem, in a graph with V vertices, the longest simple shortest path
     // contains at most V - 1 edges. Setting bound = max(1, V - 1) guarantees fixed-point convergence.
+    maxIterations.foreach { iters =>
+      if (iters <= 0) {
+        throw new IllegalArgumentException(s"maxIterations must be strictly positive (> 0), observed: $iters")
+      }
+    }
     val iterationLimit = maxIterations.getOrElse(math.max(1, (vertexCount - 1).toInt))
 
     // 6. Execute GraphX Pregel
@@ -227,6 +232,24 @@ object ShortestPathPregel {
       }
     )
 
+    // 7. Verify Convergence (Defect Guard against Incomplete Execution):
+    // If Pregel terminated because it hit a user-configured iterationLimit while further edge
+    // relaxations were still possible, detect and report incomplete convergence rather than
+    // silently presenting incomplete distances as final results.
+    val unrelaxedEdgesCount = routedGraph.triplets.filter { triplet =>
+      val srcDist = triplet.srcAttr.distance
+      val dstDist = triplet.dstAttr.distance
+      val edgeWeight = triplet.attr
+      !srcDist.isInfinity && srcDist >= 0.0 && (srcDist + edgeWeight < dstDist - 1e-9)
+    }.count()
+
+    if (unrelaxedEdgesCount > 0L) {
+      throw new IllegalStateException(
+        s"Pregel SSSP did not converge within the configured iteration limit ($iterationLimit iterations). " +
+        s"Found $unrelaxedEdgesCount directed edge(s) where further travel-time improvements remain possible."
+      )
+    }
+
     routedGraph
   }
 
@@ -236,13 +259,15 @@ object ShortestPathPregel {
    *
    * @param graph The GraphX property graph.
    * @param origin Starting intersection ID.
+   * @param maxIterations Optional iteration limit.
    * @return Map of VertexId -> RouteResult containing travel times, paths, and reachability.
    */
   def computeRoutes[VD: ClassTag](
     graph: Graph[VD, Double],
-    origin: VertexId
+    origin: VertexId,
+    maxIterations: Option[Int] = None
   ): Map[VertexId, RouteResult] = {
-    val routedGraph = runShortestPath(graph, origin)
+    val routedGraph = runShortestPath(graph, origin, maxIterations)
 
     routedGraph.vertices.collect().map { case (destId, state) =>
       val isReachable = !state.distance.isInfinity && state.path.nonEmpty
@@ -253,5 +278,28 @@ object ShortestPathPregel {
         isReachable = isReachable
       )
     }.toMap
+  }
+
+  /**
+   * Alias for runShortestPath providing exact compatibility with alternate naming conventions.
+   */
+  def computeShortestPaths[VD: ClassTag](
+    graph: Graph[VD, Double],
+    originId: VertexId,
+    maxIterations: Option[Int] = None
+  ): Graph[RouteState, Double] = runShortestPath(graph, originId, maxIterations)
+
+  /**
+   * Helper to retrieve the shortest route to a specific destination vertex.
+   */
+  def tracePath(
+    resultGraph: Graph[RouteState, Double],
+    destinationId: VertexId
+  ): Option[RouteState] = {
+    resultGraph.vertices
+      .filter { case (id, _) => id == destinationId }
+      .map { case (_, state) => state }
+      .collect()
+      .headOption
   }
 }
