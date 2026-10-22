@@ -35,6 +35,10 @@ data/feature_table/**/*.parquet
 data/feature_table/**/.*
 data/feature_table/**/_SUCCESS
 data/feature_table/**/_spark_metadata/
+data/recommended_routes/**/*.parquet
+data/recommended_routes/**/.*
+data/recommended_routes/**/_SUCCESS
+data/recommended_routes/**/_spark_metadata/
 data/train/
 data/test/
 infra/checkpoints/**/offsets/
