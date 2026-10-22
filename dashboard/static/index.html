@@ -1,0 +1,589 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Urbanix — Smart City Geospatial Traffic & Environmental Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        /* =====================================================================
+           Urbanix Day 10 Design System — Modern Dark Glassmorphic Dashboard
+           ===================================================================== */
+        :root {
+            --bg-primary: #0F172A;
+            --bg-secondary: #1E293B;
+            --bg-card: rgba(30, 41, 59, 0.85);
+            --border-card: rgba(255, 255, 255, 0.08);
+            --text-primary: #F8FAFC;
+            --text-secondary: #94A3B8;
+            --text-muted: #64748B;
+            --accent-blue: #3B82F6;
+            --accent-cyan: #06B6D4;
+            --color-green: #10B981;
+            --color-orange: #F59E0B;
+            --color-red: #EF4444;
+            --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            --font-mono: 'JetBrains Mono', monospace;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: var(--font-sans);
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        /* ---------------- Header & Navigation ---------------- */
+        header {
+            background-color: var(--bg-secondary);
+            border-bottom: 1px solid var(--border-card);
+            padding: 12px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            z-index: 20;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+        }
+
+        .header-brand {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+        }
+
+        .brand-icon {
+            width: 38px;
+            height: 38px;
+            background: linear-gradient(135deg, var(--accent-blue), var(--accent-cyan));
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            box-shadow: 0 0 15px rgba(59, 130, 246, 0.4);
+        }
+
+        .brand-title h1 {
+            font-size: 18px;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+            color: var(--text-primary);
+        }
+
+        .brand-title p {
+            font-size: 11px;
+            color: var(--text-secondary);
+            font-weight: 400;
+        }
+
+        .header-controls {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .badge-live {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 10px;
+            background: rgba(16, 185, 129, 0.12);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--color-green);
+        }
+
+        .pulse-dot {
+            width: 8px;
+            height: 8px;
+            background-color: var(--color-green);
+            border-radius: 50%;
+            animation: pulse-animation 2s infinite;
+        }
+
+        @keyframes pulse-animation {
+            0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+            70% { transform: scale(1); box-shadow: 0 0 0 8px rgba(16, 185, 129, 0); }
+            100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+        }
+
+        .clock-display {
+            font-family: var(--font-mono);
+            font-size: 12px;
+            color: var(--text-secondary);
+            background: rgba(0, 0, 0, 0.2);
+            padding: 6px 12px;
+            border-radius: 6px;
+            border: 1px solid var(--border-card);
+        }
+
+        .btn-refresh {
+            background: var(--bg-card);
+            border: 1px solid var(--border-card);
+            color: var(--text-primary);
+            padding: 6px 14px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .btn-refresh:hover {
+            background: rgba(255, 255, 255, 0.08);
+            border-color: var(--accent-blue);
+        }
+
+        /* ---------------- Metrics & Status Bar ---------------- */
+        .metrics-bar {
+            background-color: rgba(15, 23, 42, 0.95);
+            border-bottom: 1px solid var(--border-card);
+            padding: 10px 24px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            overflow-x: auto;
+            z-index: 15;
+        }
+
+        .metric-chip {
+            background: var(--bg-card);
+            border: 1px solid var(--border-card);
+            border-radius: 8px;
+            padding: 8px 14px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            min-width: 170px;
+            flex-shrink: 0;
+        }
+
+        .chip-label {
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-muted);
+            margin-bottom: 2px;
+        }
+
+        .chip-value {
+            font-size: 14px;
+            font-weight: 700;
+            color: var(--text-primary);
+            font-family: var(--font-mono);
+        }
+
+        .zone-pill {
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 10px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .pill-green { background: rgba(16, 185, 129, 0.15); color: #34D399; }
+        .pill-orange { background: rgba(245, 158, 11, 0.15); color: #FBBF24; }
+        .pill-red { background: rgba(239, 68, 68, 0.15); color: #F87171; }
+
+        /* ---------------- Error & Notification Banner ---------------- */
+        #error-banner {
+            display: none;
+            background: rgba(239, 68, 68, 0.9);
+            color: white;
+            padding: 10px 24px;
+            font-size: 13px;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            z-index: 25;
+        }
+
+        /* ---------------- Main Content Layout ---------------- */
+        main {
+            flex: 1;
+            display: flex;
+            position: relative;
+            overflow: hidden;
+        }
+
+        /* Map IFrame Container */
+        #map-container {
+            flex: 1;
+            height: 100%;
+            position: relative;
+            background-color: #0b0f19;
+        }
+
+        #map-frame {
+            width: 100%;
+            height: 100%;
+            border: none;
+            display: block;
+        }
+
+        /* Loading Spinner Overlay */
+        #loading-overlay {
+            position: absolute;
+            top: 16px;
+            left: 16px;
+            background: rgba(15, 23, 42, 0.85);
+            backdrop-filter: blur(8px);
+            border: 1px solid var(--border-card);
+            border-radius: 8px;
+            padding: 8px 14px;
+            font-size: 12px;
+            color: var(--text-secondary);
+            display: none;
+            align-items: center;
+            gap: 8px;
+            z-index: 1000;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        }
+
+        .spinner {
+            width: 14px;
+            height: 14px;
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            border-top-color: var(--accent-cyan);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Floating Info Box on Map */
+        .floating-info-card {
+            position: absolute;
+            top: 16px;
+            right: 16px;
+            background: rgba(15, 23, 42, 0.9);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--border-card);
+            border-radius: 10px;
+            padding: 14px 18px;
+            font-size: 12px;
+            color: var(--text-secondary);
+            z-index: 999;
+            max-width: 280px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+        }
+
+        .floating-info-card h3 {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 6px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .floating-info-card p {
+            line-height: 1.5;
+            color: var(--text-muted);
+            margin-bottom: 8px;
+        }
+
+        .stat-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 4px 0;
+            border-top: 1px solid rgba(255, 255, 255, 0.05);
+        }
+    </style>
+</head>
+<body>
+
+    <!-- 1. Top Header -->
+    <header>
+        <div class="header-brand">
+            <div class="brand-icon">🌆</div>
+            <div class="brand-title">
+                <h1>URBANIX DASHBOARD</h1>
+                <p>Smart City IoT Traffic & Environmental Risk Forecasting Platform</p>
+            </div>
+        </div>
+        <div class="header-controls">
+            <div class="badge-live">
+                <div class="pulse-dot"></div>
+                <span>LIVE POLLING (15s)</span>
+            </div>
+            <div class="clock-display" id="last-updated-clock">Updated: Initializing...</div>
+            <button class="btn-refresh" id="manual-refresh-btn" onclick="triggerManualRefresh()">
+                <span>🔄</span> Refresh Now
+            </button>
+        </div>
+    </header>
+
+    <!-- 2. Error Notification Banner -->
+    <div id="error-banner">
+        <span id="error-message">⚠️ Error loading latest predictions. Retrying automatically...</span>
+        <button style="background: none; border: none; color: white; cursor: pointer; font-size: 16px;" onclick="dismissError()">✕</button>
+    </div>
+
+    <!-- 3. Metrics Summary Ribbon -->
+    <div class="metrics-bar" id="metrics-bar">
+        <div class="metric-chip">
+            <div>
+                <div class="chip-label">Monitored Zones</div>
+                <div class="chip-value" id="chip-zones">5 Active</div>
+            </div>
+        </div>
+        <div class="metric-chip">
+            <div>
+                <div class="chip-label">Avg Network Speed</div>
+                <div class="chip-value" id="chip-avg-speed">-- km/h</div>
+            </div>
+        </div>
+        <div class="metric-chip">
+            <div>
+                <div class="chip-label">Pregel GraphX Routes</div>
+                <div class="chip-value" id="chip-routes">20 Optimal (100%)</div>
+            </div>
+        </div>
+        <div class="metric-chip">
+            <div>
+                <div class="chip-label">Latest Micro-batch</div>
+                <div class="chip-value" id="chip-window" style="font-size: 11px;">--</div>
+            </div>
+        </div>
+        <!-- Individual Zone Status Chips will be dynamically populated here -->
+        <div id="zone-chips-container" style="display: flex; gap: 10px;"></div>
+    </div>
+
+    <!-- 4. Interactive Map Section -->
+    <main>
+        <div id="map-container">
+            <!-- Loading indicator -->
+            <div id="loading-overlay">
+                <div class="spinner"></div>
+                <span>Syncing live Parquet predictions...</span>
+            </div>
+
+            <!-- Floating Architecture Note -->
+            <div class="floating-info-card">
+                <h3><span>🗺️</span> Real-Time Geospatial Map</h3>
+                <p>Folium Leaflet canvas rendered server-side from live Parquet feature table without in-memory caching.</p>
+                <div class="stat-row">
+                    <span>Dispatch Origin:</span>
+                    <b style="color: var(--accent-cyan);">Node 1 (Civic Center)</b>
+                </div>
+                <div class="stat-row">
+                    <span>Shared Storage:</span>
+                    <code>data/feature_table/</code>
+                </div>
+                <div class="stat-row">
+                    <span>Graph Engine:</span>
+                    <span>Scala Spark GraphX</span>
+                </div>
+            </div>
+
+            <!-- 
+                =============================================================
+                Why an <iframe> is Used Rather Than <div>.innerHTML:
+                =============================================================
+                1. Folium generates a complete, standalone HTML document containing
+                   its own <head>, Leaflet CSS, Leaflet JS, and an initialization <script>.
+                2. Setting innerHTML on a <div> does NOT execute embedded <script> tags
+                   according to standard W3C HTML5 security specifications, which leaves
+                   the Leaflet map canvas completely blank!
+                3. An <iframe> provides complete DOM and CSS isolation: it instantiates
+                   a fresh Leaflet execution context, cleanly updates without CSS leakage,
+                   and safely recycles memory across repeated polling intervals.
+            -->
+            <iframe id="map-frame" src="/api/map" title="Urbanix Live Heatmap"></iframe>
+        </div>
+    </main>
+
+    <!-- 5. Polling & Live Data Client-Side Logic -->
+    <script>
+        // =====================================================================
+        // Configuration: Single Constant Polling Interval (Section 8 Standard)
+        // =====================================================================
+        const REFRESH_INTERVAL_MS = 15000; // 15 seconds polling interval
+        let isRefreshing = false;           // Concurrency guard: prevents overlapping fetches
+        let timerId = null;
+
+        /**
+         * Formats an ISO-8601 timestamp into a clean, human-readable local time string.
+         */
+        function formatTime(isoString) {
+            if (!isoString) return 'Just now';
+            try {
+                const date = new Date(isoString);
+                return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            } catch (e) {
+                return isoString;
+            }
+        }
+
+        /**
+         * Updates the metrics ribbon by fetching /api/predictions asynchronously.
+         */
+        async function updateMetrics() {
+            try {
+                // Read fresh predictions from FastAPI backend
+                const response = await fetch('/api/predictions');
+                if (!response.ok) {
+                    throw new Error(`API returned HTTP ${response.status}`);
+                }
+                const predictions = await response.json();
+
+                if (!Array.isArray(predictions) || predictions.length === 0) {
+                    return;
+                }
+
+                // Compute aggregate metrics
+                let totalSpeed = 0;
+                let latestWindow = '';
+                const zoneChipsContainer = document.getElementById('zone-chips-container');
+                zoneChipsContainer.innerHTML = '';
+
+                predictions.forEach(p => {
+                    totalSpeed += p.predicted_speed_kmph;
+                    if (p.window_start && p.window_start > latestWindow) {
+                        latestWindow = p.window_start;
+                    }
+
+                    // Determine pill style
+                    let pillClass = 'pill-green';
+                    if (p.status === 'MODERATE') pillClass = 'pill-orange';
+                    if (p.status === 'CONGESTED') pillClass = 'pill-red';
+
+                    // Create individual zone chip
+                    const chip = document.createElement('div');
+                    chip.className = 'metric-chip';
+                    chip.style.minWidth = '140px';
+                    chip.innerHTML = `
+                        <div>
+                            <div class="chip-label">${p.zone_name.split(' ')[0]} (${p.zone_id})</div>
+                            <div style="display: flex; align-items: center; gap: 6px;">
+                                <span class="chip-value">${p.predicted_speed_kmph.toFixed(1)}</span>
+                                <span class="zone-pill ${pillClass}">${p.status.substring(0, 4)}</span>
+                            </div>
+                        </div>
+                    `;
+                    zoneChipsContainer.appendChild(chip);
+                });
+
+                const avgSpeed = totalSpeed / predictions.length;
+                document.getElementById('chip-avg-speed').textContent = `${avgSpeed.toFixed(1)} km/h`;
+                document.getElementById('chip-zones').textContent = `${predictions.length} Active`;
+                if (latestWindow) {
+                    document.getElementById('chip-window').textContent = latestWindow.substring(11, 19) + ' UTC';
+                }
+
+                // Clear any active error banner on success
+                dismissError();
+
+            } catch (err) {
+                console.warn('[Dashboard] Could not update metrics:', err);
+                showError(`Failed to fetch latest prediction metrics (${err.message})`);
+            }
+        }
+
+        /**
+         * Refreshes the Folium map <iframe> in place by assigning a cache-busting timestamp URL.
+         */
+        function refreshMapIframe() {
+            const iframe = document.getElementById('map-frame');
+            const loadingOverlay = document.getElementById('loading-overlay');
+            loadingOverlay.style.display = 'flex';
+
+            // Cache-busting query parameter forces browser to request fresh HTML from /api/map
+            iframe.src = `/api/map?t=${Date.now()}`;
+
+            iframe.onload = () => {
+                loadingOverlay.style.display = 'none';
+                const now = new Date();
+                document.getElementById('last-updated-clock').textContent = `Updated: ${now.toLocaleTimeString()}`;
+            };
+
+            iframe.onerror = () => {
+                loadingOverlay.style.display = 'none';
+                showError('Failed to refresh Leaflet map from /api/map');
+            };
+        }
+
+        /**
+         * Main refresh orchestrator called on page open and repeatedly by setInterval().
+         */
+        async function refreshDashboard() {
+            // Concurrency guard: Do not trigger a new cycle if the previous one is still in flight
+            if (isRefreshing) {
+                console.log('[Dashboard] Refresh skipped: previous cycle still active.');
+                return;
+            }
+
+            isRefreshing = true;
+            try {
+                // Parallel execution: refresh metrics and refresh map iframe
+                await Promise.all([
+                    updateMetrics(),
+                    refreshMapIframe()
+                ]);
+            } catch (error) {
+                console.error('[Dashboard] Error during refresh cycle:', error);
+                showError(`Refresh cycle error: ${error.message}`);
+            } finally {
+                isRefreshing = false;
+            }
+        }
+
+        /**
+         * Manual refresh triggered by user clicking the "Refresh Now" button.
+         */
+        function triggerManualRefresh() {
+            console.log('[Dashboard] Manual refresh triggered by user.');
+            refreshDashboard();
+        }
+
+        function showError(msg) {
+            const banner = document.getElementById('error-banner');
+            document.getElementById('error-message').textContent = `⚠️ ${msg}. Auto-retrying in ${REFRESH_INTERVAL_MS / 1000}s...`;
+            banner.style.display = 'flex';
+        }
+
+        function dismissError() {
+            document.getElementById('error-banner').style.display = 'none';
+        }
+
+        // =====================================================================
+        // Execution Lifecycle: Immediate Execution + Recurring Polling Loop
+        // =====================================================================
+        // 1. Initial immediate execution on page load
+        window.addEventListener('DOMContentLoaded', () => {
+            console.log(`[Dashboard] Initializing Urbanix Dashboard (Polling every ${REFRESH_INTERVAL_MS}ms)`);
+            updateMetrics();
+
+            // 2. Schedule recurring polling loop
+            timerId = setInterval(refreshDashboard, REFRESH_INTERVAL_MS);
+        });
+
+        // Clean up interval if user navigates away
+        window.addEventListener('beforeunload', () => {
+            if (timerId) clearInterval(timerId);
+        });
+    </script>
+</body>
+</html>
