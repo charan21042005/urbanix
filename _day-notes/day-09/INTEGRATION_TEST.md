@@ -111,22 +111,28 @@ Write-Host "[+] Pristine backup established at data/feature_table/traffic_backup
 ```
 
 ### Method A: Zero-Risk Isolated Test Table (Highest Safety & Recommended)
-Because `RouteRecommender` natively supports the `--feature-table` and `--output` CLI flags, we can create an isolated copy of the feature store, apply the congestion spike, and route against it without ever touching production data:
+Because `RouteRecommender` natively supports the `--feature-table` and `--output` CLI flags, we generate an isolated fixture directly from the production store. PySpark reads `data/feature_table/traffic` (read-only), applies the congestion spike strictly to the latest prediction window (`window_start == max(window_start)`) for `zone_2` and `zone_4`, and writes directly to `data/feature_table_spike`. This avoids copying and eliminates any Spark read-and-overwrite collision on the same directory:
 
 ```powershell
-# 1. Establish isolated fixture directory
-Copy-Item -Path "data\feature_table\traffic" -Destination "data\feature_table_spike" -Recurse -Force
-
-# 2. Inject synthetic congestion into zone_2 (or zone_4 for route flip) in the isolated table
 .\services\streaming\venv\Scripts\python -c "
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import when, col, lit
+from pyspark.sql.functions import col, when, lit, max as spark_max
+
 spark = SparkSession.builder.master('local[1]').getOrCreate()
-df = spark.read.parquet('data/feature_table_spike')
-# Inject 5.0 km/h into zone_2 (San Fernando Valley)
-spiked_df = df.withColumn('avg_speed_kmph', when(col('zone_id') == 'zone_2', lit(5.0)).otherwise(col('avg_speed_kmph')))
+src_df = spark.read.parquet('data/feature_table/traffic')
+max_ts = src_df.agg(spark_max('window_start')).collect()[0][0]
+print('[+] Identified latest prediction window:', max_ts)
+
+# Throttle zone_2 (SF Valley) and zone_4 (South LA) to 5.0 km/h for the latest window
+spiked_df = src_df.withColumn(
+    'avg_speed_kmph',
+    when((col('window_start') == max_ts) & col('zone_id').isin('zone_2', 'zone_4'), lit(5.0))
+    .otherwise(col('avg_speed_kmph'))
+)
+
+# Write to isolated staging directory (leaves production feature store completely untouched)
 spiked_df.write.mode('overwrite').parquet('data/feature_table_spike')
-print('[+] Isolated fixture updated: zone_2 speed throttled to 5.0 km/h')
+print('[+] Successfully materialized isolated test fixture at data/feature_table_spike')
 "
 ```
 

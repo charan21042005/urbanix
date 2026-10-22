@@ -151,7 +151,11 @@ object RouteRecommender {
    * Resolves a file path across typical working directories (repo root, submodules, tests).
    */
   def resolvePath(candidates: Seq[String]): String = {
-    candidates.find(p => new File(p).exists()).getOrElse(candidates.head)
+    val expanded = candidates.flatMap { p =>
+      if (new File(p).isAbsolute) Seq(p)
+      else Seq(p, s"../../$p", s"../$p")
+    }
+    expanded.find(p => new File(p).exists()).getOrElse(candidates.head)
   }
 
   /**
