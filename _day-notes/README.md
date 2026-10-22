@@ -1,6 +1,6 @@
 # 📅 Urbanix Daily Engineering Journal & Milestone Tracker (`_day-notes/`)
 
-![Roadmap Progress](https://img.shields.io/badge/Progress-Day_7_of_12_Complete_(58.3%25)-brightgreen)
+![Roadmap Progress](https://img.shields.io/badge/Progress-Day_9_of_12_Complete_(75.0%25)-brightgreen)
 ![Day 1 Status](https://img.shields.io/badge/Day_1-Verified_&_Closed-brightgreen)
 ![Day 2 Status](https://img.shields.io/badge/Day_2-Verified_&_Closed-brightgreen)
 ![Day 3 Status](https://img.shields.io/badge/Day_3-Verified_&_Closed-brightgreen)
@@ -8,7 +8,9 @@
 ![Day 5 Status](https://img.shields.io/badge/Day_5-Verified_&_Closed-brightgreen)
 ![Day 6 Status](https://img.shields.io/badge/Day_6-Verified_&_Closed-brightgreen)
 ![Day 7 Status](https://img.shields.io/badge/Day_7-Verified_&_Closed-brightgreen)
-![Day 8 Status](https://img.shields.io/badge/Day_8-Active_Next-blue)
+![Day 8 Status](https://img.shields.io/badge/Day_8-Verified_&_Closed-brightgreen)
+![Day 9 Status](https://img.shields.io/badge/Day_9-Verified_&_Closed-brightgreen)
+![Day 10 Status](https://img.shields.io/badge/Day_10-Active_Next-blue)
 
 > [!WARNING]
 > **DEVELOPMENT & VIVA ARTIFACT NOTICE**
@@ -39,9 +41,9 @@ graph TD
     %% Phase 3: Analytical Sinks & Operator Dashboard
     subgraph P3["<b>PHASE 3: Analytical Sinks & Operator Dashboard (Days 7–10)</b> — [IN PROGRESS]"]
         D7["<b>Day 7: Scala GraphX Road-Graph Construction & Integrity Audit</b><br>Property Graph • Vertex-Cut • Two-Phase Validation • 100% Reciprocity<br><b>Status: COMPLETE</b>"]
-        D8["<b>Day 8: Congestion-Weighted Shortest Path Routing</b><br>Spark GraphX • ShortestPaths / Pregel • Dynamic Travel Times • Detour Verification<br><b>Status: ACTIVE NEXT</b>"]
-        D9["<b>Day 9: Geospatial Dashboard Core</b><br>React 18 • Vite • MapLibre GL • deck.gl 3D Hex Heatmaps<br><b>Status: PLANNED</b>"]
-        D10["<b>Day 10: Interactive Operator Dashboard</b><br>Route Comparator • Live Gauges • Recharts Time-Series<br><b>Status: PLANNED</b>"]
+        D8["<b>Day 8: Congestion-Weighted Shortest Path Routing</b><br>Spark GraphX • Pregel SSSP • Dynamic Travel Times • Oracle Verification<br><b>Status: COMPLETE</b>"]
+        D9["<b>Day 9: End-to-End Forecast-to-Reroute Integration</b><br>Decoupled Parquet • Latest Window Selection • RouteRecommender • Snapshot Overwrite<br><b>Status: COMPLETE</b>"]
+        D10["<b>Day 10: Geospatial Dashboard Core</b><br>React / Leaflet • Route Polyline Overlay • Real-Time Heatmaps<br><b>Status: ACTIVE NEXT</b>"]
         D7 --> D8 --> D9 --> D10
     end
 
@@ -190,6 +192,27 @@ Phase 1: Foundation (COMPLETE)        Phase 2: Analytics & Models (COMPLETE)    
   * Authored 13-test automated suite in `RoadGraphBuilderSpec.scala` testing basic construction, deterministic ID mapping, duplicate detection, dangling edges, invalid distances, directionality, self-loops, strict fail-fast policy, and GraphX operators (`triplets`, `inDegrees`, `outDegrees`, `subgraph`).
   * Verified structural reproducibility across independent JVM invocations (`sbt run`).
   * Re-verified Days 1–6 regression matrix (76/76 total tests passing across project; 63 Python + 13 Scala).
+
+### Day 8: Congestion-Weighted Shortest-Path Routing Using Scala Spark GraphX Pregel
+* **Report:** [`day-08/DAY_08_FINAL_REPORT.md`](file:///c:/Users/Tokachichu%20SriCharan/OneDrive/Documents/GitHub/urbanix/_day-notes/day-08/DAY_08_FINAL_REPORT.md)
+* **Key Achievements:**
+  * Implemented `CongestionWeight.scala`: converts physical kilometers into travel-time hours ($t = d/v$) with defensive gridlock floor clamping ($v \ge 1.0\text{ km/h}$) to prevent division-by-zero singularities.
+  * Implemented `ShortestPathPregel.scala`: distributed Single-Source Shortest Paths (SSSP) via GraphX Pregel API with deterministic lexicographic tie-breaking and Bellman-Ford convergence verification.
+  * Banned unweighted built-in `ShortestPaths` library and explained theoretical flaw (hop count vs. travel-time cost).
+  * Validated against hand-computed 4-node oracle ($A \to C \to D = 0.2311\text{ h}$) and proved dynamic route divergence under localized congestion ($A \to B \to D = 0.4000\text{ h}$).
+  * Verified full 20-node network connectivity with 33 passing Scala tests across Day 7 and Day 8 suites.
+
+### Day 9: End-to-End Forecast-to-Reroute Integration & Dashboard Handoff
+* **Report:** [`day-09/DAY_09_FINAL_REPORT.md`](file:///c:/Users/Tokachichu%20SriCharan/OneDrive/Documents/GitHub/urbanix/_day-notes/day-09/DAY_09_FINAL_REPORT.md)
+* **Integration Runbook:** [`day-09/INTEGRATION_TEST.md`](file:///c:/Users/Tokachichu%20SriCharan/OneDrive/Documents/GitHub/urbanix/_day-notes/day-09/INTEGRATION_TEST.md)
+* **Key Achievements:**
+  * Engineered `RouteRecommender.scala`: closed the loop between Python MLlib inference and Scala GraphX routing via decoupled shared Parquet storage (`data/feature_table/traffic`).
+  * Formulated deterministic latest-window selection using Spark SQL Window row-ranking (`row_number() over (partitionBy zone_id orderBy window_start desc)`), avoiding non-deterministic `max/last` aggregation bugs.
+  * Mapped directed road edges using destination intersection zones and applied documented $40.0\text{ km/h}$ free-flow fallbacks.
+  * Published dashboard-ready route snapshots to `data/recommended_routes/` using overwrite semantics.
+  * Added 10 automated unit and integration tests in `RouteRecommenderSpec.scala` bringing total Scala tests to **43 / 43 passing**.
+  * Executed comprehensive multi-day regression: 19 Python producer tests, 10 model verifier checks, 7 inference verifier checks, 44 streaming pytest specs, and 43 Scala sbt specs all passing cleanly.
+  * Authored Windows PowerShell manual runbook (`INTEGRATION_TEST.md`) with a pending manual verification section.
 
 ---
 
