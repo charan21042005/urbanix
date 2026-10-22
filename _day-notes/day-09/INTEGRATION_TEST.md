@@ -99,10 +99,39 @@ Identify your target destination (e.g., Destination 8, 15, 17, or 20) and record
 
 ## ⚡ 5. Stage 3: Controlled Congestion-Spike Injection
 
-To prove that the routing engine genuinely responds to live predictions, we introduce a controlled congestion spike. You can execute this either via **Method A (Isolated Synthetic Feature Injection — Recommended for Safe Zero-Side-Effect Audits)** or **Method B (Full Streaming Stack with Live Kafka Producers)**.
+To prove that the routing engine genuinely responds to live predictions, we introduce a controlled congestion spike. You can execute this either via **Method A (Zero-Risk Isolated Test Table — Recommended)**, **Method B (Safe In-Place Injection with Mandatory Backup)**, or **Method C (Full Streaming Stack with Live Kafka Producers)**.
 
-### Method A: Isolated Synthetic Injection (Safe & Instantaneous)
-This method writes an isolated synthetic batch to `data/feature_table/traffic/` simulating a severe traffic collapse in `zone_2` (San Fernando Valley / Hollywood Freeway corridor, dropping speed to 5.0 km/h):
+> [!CAUTION]
+> **Data Safety Gate:** Before modifying the shared feature table in-place, always create a pristine filesystem backup. Never execute in-place overwrites without a verified backup.
+
+```powershell
+# Mandatory Pre-Test Safety Backup (PowerShell)
+Copy-Item -Path "data\feature_table\traffic" -Destination "data\feature_table\traffic_backup" -Recurse -Force
+Write-Host "[+] Pristine backup established at data/feature_table/traffic_backup" -ForegroundColor Green
+```
+
+### Method A: Zero-Risk Isolated Test Table (Highest Safety & Recommended)
+Because `RouteRecommender` natively supports the `--feature-table` and `--output` CLI flags, we can create an isolated copy of the feature store, apply the congestion spike, and route against it without ever touching production data:
+
+```powershell
+# 1. Establish isolated fixture directory
+Copy-Item -Path "data\feature_table\traffic" -Destination "data\feature_table_spike" -Recurse -Force
+
+# 2. Inject synthetic congestion into zone_2 (or zone_4 for route flip) in the isolated table
+.\services\streaming\venv\Scripts\python -c "
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import when, col, lit
+spark = SparkSession.builder.master('local[1]').getOrCreate()
+df = spark.read.parquet('data/feature_table_spike')
+# Inject 5.0 km/h into zone_2 (San Fernando Valley)
+spiked_df = df.withColumn('avg_speed_kmph', when(col('zone_id') == 'zone_2', lit(5.0)).otherwise(col('avg_speed_kmph')))
+spiked_df.write.mode('overwrite').parquet('data/feature_table_spike')
+print('[+] Isolated fixture updated: zone_2 speed throttled to 5.0 km/h')
+"
+```
+
+### Method B: In-Place Synthetic Injection (With Active Backup)
+This method appends an isolated synthetic row into `data/feature_table/traffic/` with a current timestamp:
 
 ```powershell
 .\services\streaming\venv\Scripts\python -c "
@@ -111,14 +140,7 @@ from pyspark.sql.functions import current_timestamp, lit
 spark = SparkSession.builder.master('local[1]').getOrCreate()
 
 # Create a synthetic congestion event for zone_2 with 5.0 km/h speed
-spike_data = [(
-    'zone_2',
-    5.0,
-    5.0,
-    5.0,
-    5.0,
-    100
-)]
+spike_data = [('zone_2', 5.0, 5.0, 5.0, 5.0, 100)]
 columns = ['zone_id', 'avg_speed_kmph', 'min_speed_kmph', 'max_speed_kmph', 'predicted_speed_kmph', 'traffic_record_count']
 spike_df = spark.createDataFrame(spike_data, columns) \
     .withColumn('window_start', current_timestamp()) \
@@ -126,13 +148,12 @@ spike_df = spark.createDataFrame(spike_data, columns) \
     .withColumn('predicted_speed', lit(5.0)) \
     .withColumn('prediction_model', lit('Synthetic_Congestion_Spike'))
 
-# Append to feature table
 spike_df.write.mode('append').parquet('data/feature_table/traffic')
 print('[+] Synthetic congestion spike successfully injected for zone_2 (5.0 km/h).')
 "
 ```
 
-### Method B: Live Streaming Pipeline Injection
+### Method C: Live Streaming Pipeline Injection
 If running the entire distributed pipeline simultaneously:
 1. **Terminal 1 (Infrastructure):** `cd infra; docker compose up -d`
 2. **Terminal 2 (Producers):** `cd services/producers; .\venv\Scripts\python traffic_producer.py`
@@ -144,9 +165,15 @@ If running the entire distributed pipeline simultaneously:
 
 ## 🔄 6. Stage 4: Re-Run Route Recommendation & Observe Adaptation
 
-Execute `RouteRecommender` again to consume the newly injected forecast:
+Execute `RouteRecommender` in single-pass mode. If using **Method A**, pass `--feature-table data/feature_table_spike --output data/recommended_routes_spike`:
 
 ```powershell
+# For Method A (Isolated Fixture):
+cd services/graphx-reroute
+.\sbt.bat --batch "runMain urbanix.graphx.RouteRecommender --once --feature-table data/feature_table_spike --output data/recommended_routes_spike"
+cd ../..
+
+# For Method B or C (In-Place Table):
 cd services/graphx-reroute
 .\sbt.bat --batch "runMain urbanix.graphx.RouteRecommender --once"
 cd ../..
@@ -155,40 +182,54 @@ cd ../..
 Inspect the updated route snapshot:
 
 ```powershell
+# For Method A:
+.\services\streaming\venv\Scripts\python -c "
+from pyspark.sql import SparkSession
+spark = SparkSession.builder.master('local[1]').getOrCreate()
+df = spark.read.parquet('data/recommended_routes_spike')
+print('=== POST-CONGESTION RECOMMENDED ROUTES (ISOLATED RUN) ===')
+df.filter(df.destination_id.isin(5, 6, 7, 8, 15)) \
+  .select('destination_id', 'total_travel_time_minutes', 'path_formatted', 'computed_at') \
+  .sort('destination_id') \
+  .show(truncate=False)
+"
+
+# For Method B or C:
 .\services\streaming\venv\Scripts\python -c "
 from pyspark.sql import SparkSession
 spark = SparkSession.builder.master('local[1]').getOrCreate()
 df = spark.read.parquet('data/recommended_routes')
-print('=== POST-CONGESTION RECOMMENDED ROUTES ===')
-df.filter(df.destination_id.isin(5, 6, 7, 8)) \
+print('=== POST-CONGESTION RECOMMENDED ROUTES (IN-PLACE RUN) ===')
+df.filter(df.destination_id.isin(5, 6, 7, 8, 15)) \
   .select('destination_id', 'total_travel_time_minutes', 'path_formatted', 'computed_at') \
+  .sort('destination_id') \
   .show(truncate=False)
 "
 ```
 
 ### What to Compare:
-1. **Travel Time Increase:** Compare the travel time to Destination 8 before and after. Because `zone_2` dropped from ~70 km/h to 5 km/h, the travel time across Hollywood Fwy / Ventura corridor increases significantly.
-2. **Route Divergence:** If an alternative route through another zone exists, GraphX's Pregel algorithm will automatically select the alternate path if its cumulative travel time is shorter than the congested corridor.
+1. **Travel Time Increase (Corridor Bottleneck):** Compare Destination 8 (`1 -> 2 -> 3 -> 5 -> 7 -> 8`). Because `zone_2` dropped from ~81 km/h to 5 km/h, the travel time across the Hollywood Fwy corridor surges from ~20.58 minutes to ~308.8 minutes.
+2. **Route Divergence (Rerouting Detour):** If throttling `zone_4` to 5.0 km/h, Destination 15 dynamically diverts from `1 -> 2 -> 14 -> 16 -> 15` (which traverses three congested `zone_4` edges) to `1 -> 9 -> 11 -> 15` (taking the free-flowing `zone_3` Arroyo / Rosemead corridor).
 
 ---
 
 ## 🧹 7. Stage 5: Restoration and Cleanup
 
-To maintain repository data cleanliness after completing your verification:
+To maintain pristine repository cleanliness after completing verification:
 
 ```powershell
-# Restore feature table to clean 480-row baseline
-.\services\streaming\venv\Scripts\python -c "
-from pyspark.sql import SparkSession
-from pyspark.sql.functions import col
-spark = SparkSession.builder.master('local[1]').getOrCreate()
-df = spark.read.parquet('data/feature_table/traffic')
-clean_df = df.filter(col('prediction_model') != 'Synthetic_Congestion_Spike')
-clean_df.write.mode('overwrite').parquet('data/feature_table/traffic')
-print('[+] Cleaned feature table. Restored row count:', clean_df.count())
-"
+# If Method A was used: Simply delete the temporary test directories
+Remove-Item -Path "data\feature_table_spike" -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item -Path "data\recommended_routes_spike" -Recurse -Force -ErrorAction SilentlyContinue
+Write-Host "[+] Isolated test directories cleanly removed. Baseline remains untouched!" -ForegroundColor Green
 
-# Re-run recommender to restore baseline routes
+# If Method B was used: Restore from the verified pre-test backup
+Remove-Item -Path "data\feature_table\traffic" -Recurse -Force
+Copy-Item -Path "data\feature_table\traffic_backup" -Destination "data\feature_table\traffic" -Recurse -Force
+Remove-Item -Path "data\feature_table\traffic_backup" -Recurse -Force
+Write-Host "[+] Restored data/feature_table/traffic from verified backup." -ForegroundColor Green
+
+# Re-run recommender to restore baseline routes snapshot
 cd services/graphx-reroute
 .\sbt.bat --batch "runMain urbanix.graphx.RouteRecommender --once"
 cd ../..
