@@ -1,26 +1,62 @@
 // ==============================================================================
-// Urbanix — Day 7: GraphX Road Network Rerouting Engine
-// RoadGraphBuilder.scala — Distributed Property Graph Construction & Rigorous Audit
+// 🌟 URBANIX — GRAPHX ROAD NETWORK PROPERTY GRAPH BUILDER & TOPOLOGY AUDITOR
+// RoadGraphBuilder.scala — Distributed Graph Construction, Source Validation & Graph Audit
 // ==============================================================================
-// In GraphX, a road network is represented as a directed Property Graph:
-// - Intersections are Vertices: (VertexId, VD) where VertexId is a 64-bit Long
-// - Road segments are Edges: Edge[ED] with srcId, dstId, and attribute ED (Double base distance)
+// Welcome to the RoadGraphBuilder engine! 👋
+//
+// ------------------------------------------------------------------------------
+// 🎓 WHAT IS A PROPERTY GRAPH IN SPARK GRAPHX?
+// ------------------------------------------------------------------------------
+// A Property Graph is a directed multigraph where user-defined data structures (properties)
+// are attached to every single Vertex (node) and Edge (link):
+//
+//               Graph[VD, ED]
+//
+//   - Vertices (V): Physical street intersections.
+//     Type: (VertexId, VD) where 'VertexId' is a 64-bit Long (1L to 20L),
+//     and 'VD' is Vertex Data storing the intersection name ("Grand Ave & 1st St").
+//
+//   - Edges (E): Directed road corridors connecting intersections.
+//     Type: Edge[ED] storing 'srcId' (from), 'dstId' (to), and attribute 'ED'
+//     which stores the physical road distance in kilometers (Double).
+//
+// ------------------------------------------------------------------------------
+// 🛡️ TWO-PHASE DATA INTEGRITY ASSURANCE:
+// ------------------------------------------------------------------------------
+// In big data engineering, you NEVER build a graph on dirty, unvalidated data!
+// This file executes a rigorous 2-phase verification pipeline:
+//
+//   PHASE 1: Pre-Construction Source Audit (validateSourceData)
+//     - Verifies intersection IDs are positive, unique, and not null.
+//     - Checks that road endpoints exist and distances are > 0.0 km.
+//     - Detects and rejects accidental self-loops (src_id == dst_id).
+//     - Distinguishes exact duplicate records from legitimate reverse edges (u <-> v).
+//
+//   PHASE 2: GraphX Topological Audit (auditGraph)
+//     - Detects "Phantom Vertices": GraphX automatically creates dummy nodes with null
+//       properties if an edge references an ID missing from the vertex table!
+//     - Detects "Dangling Edges": Roads pointing into the void.
+//     - Calculates Weakly Connected Components (WCC) to prove all nodes belong to 1 network.
+//     - Checks 100% Reciprocity / Symmetry (every road segment has a return direction).
 // ==============================================================================
 
 package urbanix.graphx
 
+// Import Apache Spark SQL tools for loading CSV files into DataFrames
 import org.apache.spark.sql.{SparkSession, DataFrame, Row}
 import org.apache.spark.sql.functions._
+
+// Import Apache Spark GraphX classes and graph algorithms
 import org.apache.spark.graphx._
 import org.apache.spark.graphx.lib.ConnectedComponents
 import org.apache.spark.rdd.RDD
 import java.io.File
 
 /**
- * Audit report for source CSV datasets before graph construction.
- *
- * Captures row counts, duplicate IDs, missing fields, invalid distances,
- * and exact duplicate edge records (distinguishing legitimate reverse edges).
+ * -----------------------------------------------------------------------------
+ * 📦 CASE CLASS: SourceValidationReport
+ * -----------------------------------------------------------------------------
+ * Stores audit statistics for raw CSV files before the graph is constructed.
  */
 case class SourceValidationReport(
   intersectionsTotalRows: Long,
@@ -38,7 +74,10 @@ case class SourceValidationReport(
 )
 
 /**
- * Comprehensive graph audit report reconciling source inputs with the GraphX topology.
+ * -----------------------------------------------------------------------------
+ * 📦 CASE CLASS: GraphSummary
+ * -----------------------------------------------------------------------------
+ * Reconciles the constructed GraphX property graph with original CSV inputs.
  */
 case class GraphSummary(
   sourceVertexCount: Long,
@@ -57,13 +96,14 @@ case class GraphSummary(
 )
 
 /**
- * Singleton object providing dataset loading, pre-construction validation,
- * GraphX property graph instantiation, and topological auditing.
+ * Singleton object: Provides dataset loading, validation, graph construction, and auditing.
  */
 object RoadGraphBuilder {
 
   /**
-   * Resolves a file path by checking candidate locations (relative to working dir or repo root).
+   * Helper function: Resolves candidate file paths dynamically.
+   * Checks multiple folders (e.g. "data/intersections.csv" vs "../../data/intersections.csv")
+   * so tests and production apps run seamlessly regardless of working directory!
    */
   def resolvePath(candidates: Seq[String]): String = {
     val existing = candidates.find(p => new File(p).exists())
@@ -77,37 +117,34 @@ object RoadGraphBuilder {
   }
 
   /**
-   * Loads intersection and road CSV files into Spark DataFrames.
+   * Loads raw intersection and road CSV files into Spark DataFrames.
    */
   def loadDataFrames(
     spark: SparkSession,
     intersectionsPath: String,
     roadsPath: String
   ): (DataFrame, DataFrame) = {
+    // Read intersections CSV (id, name, zone_id, latitude, longitude)
     val intersectionsDF = spark.read
       .option("header", "true")
       .option("inferSchema", "true")
       .csv(intersectionsPath)
 
+    // Read roads CSV (src_id, dst_id, base_distance_km)
     val roadsDF = spark.read
       .option("header", "true")
       .option("inferSchema", "true")
       .csv(roadsPath)
 
+    // In Scala, returning '(a, b)' creates a lightweight Tuple2
     (intersectionsDF, roadsDF)
   }
 
   /**
-   * Validates source DataFrames independently before graph construction.
-   *
-   * Checks for:
-   * - Null, non-positive, or duplicate intersection IDs.
-   * - Blank or missing intersection names.
-   * - Null or non-positive edge endpoints.
-   * - Null, zero, negative, NaN, or infinite edge distances.
-   * - Self-loops (src_id == dst_id).
-   * - Exact duplicate road records (same src_id AND dst_id), while preserving
-   *   legitimate reverse-direction edges (u -> v and v -> u).
+   * ===========================================================================
+   * 🛡️ PHASE 1: PRE-CONSTRUCTION SOURCE DATA VALIDATION
+   * ===========================================================================
+   * Audits DataFrames before GraphX construction to catch corrupted inputs early.
    */
   def validateSourceData(
     intersectionsDF: DataFrame,
@@ -115,9 +152,12 @@ object RoadGraphBuilder {
   ): SourceValidationReport = {
     var errors = Seq.empty[String]
 
+    // -------------------------------------------------------------------------
     // 1. Intersections Audit
+    // -------------------------------------------------------------------------
     val totalIntersections = intersectionsDF.count()
 
+    // Filter valid IDs: must be non-null and strictly positive (> 0)
     val validIdDF = intersectionsDF.filter(
       col("id").isNotNull && col("id") > 0
     )
@@ -126,12 +166,14 @@ object RoadGraphBuilder {
       errors :+= s"Found $nullOrInvalidIds intersection rows with null or non-positive IDs."
     }
 
+    // Check for duplicate intersection IDs
     val distinctIds = validIdDF.select("id").distinct().count()
     val duplicateIds = validIdDF.count() - distinctIds
     if (duplicateIds > 0) {
       errors :+= s"Found $duplicateIds duplicate intersection ID entries in source intersections."
     }
 
+    // Check for blank or missing intersection names
     val blankNames = intersectionsDF.filter(
       col("name").isNull || length(trim(col("name"))) === 0
     ).count()
@@ -139,9 +181,12 @@ object RoadGraphBuilder {
       errors :+= s"Found $blankNames intersection rows with blank or missing names."
     }
 
+    // -------------------------------------------------------------------------
     // 2. Roads Audit
+    // -------------------------------------------------------------------------
     val totalRoads = roadsDF.count()
 
+    // Validate endpoint IDs: src_id and dst_id must be valid positive numbers
     val invalidEndpoints = roadsDF.filter(
       col("src_id").isNull || col("dst_id").isNull ||
       col("src_id") <= 0 || col("dst_id") <= 0
@@ -150,8 +195,8 @@ object RoadGraphBuilder {
       errors :+= s"Found $invalidEndpoints road records with null or non-positive endpoints."
     }
 
-    // Detect exact duplicate directed edges (src_id == src_id AND dst_id == dst_id)
-    // Legitimate opposite direction (dst_id, src_id) has different column values and is NOT counted as duplicate.
+    // Detect exact duplicate directed edges (src_id == src_id AND dst_id == dst_id).
+    // Note: A reverse edge (u -> v and v -> u) is a valid 2-way street, NOT a duplicate!
     val edgeGroupCounts = roadsDF.groupBy("src_id", "dst_id").count().filter(col("count") > 1)
     val exactDuplicateRecords = if (edgeGroupCounts.count() > 0) {
       edgeGroupCounts.select(sum(col("count") - 1)).first().getAs[Long](0)
@@ -160,7 +205,7 @@ object RoadGraphBuilder {
       errors :+= s"Found $exactDuplicateRecords exact duplicate road segment records."
     }
 
-    // Check invalid distances: null, <= 0.0, NaN, or Infinite
+    // Validate road distances: must be positive, non-null, finite numbers (no NaN or Infinity)
     val invalidDistances = roadsDF.filter(
       col("base_distance_km").isNull ||
       col("base_distance_km") <= 0.0 ||
@@ -172,11 +217,13 @@ object RoadGraphBuilder {
       errors :+= s"Found $invalidDistances road records with non-positive, null, NaN, or infinite base distance."
     }
 
+    // Detect self-loops: a road starting and ending at the exact same intersection
     val selfLoops = roadsDF.filter(col("src_id") === col("dst_id")).count()
     if (selfLoops > 0) {
       errors :+= s"Found $selfLoops road records that are self-loops (src_id == dst_id)."
     }
 
+    // Summary validation status boolean
     val isValid = (nullOrInvalidIds == 0) &&
                   (duplicateIds == 0) &&
                   (blankNames == 0) &&
@@ -202,11 +249,12 @@ object RoadGraphBuilder {
   }
 
   /**
-   * Constructs the Spark GraphX property graph from intersection and road DataFrames.
-   *
-   * @param intersectionsDF DataFrame containing: id (Int/Long), name (String)
-   * @param roadsDF DataFrame containing: src_id (Int/Long), dst_id (Int/Long), base_distance_km (Double)
-   * @return Graph[String, Double]
+   * ===========================================================================
+   * 🏗️ GRAPH CONSTRUCTOR: buildGraph()
+   * ===========================================================================
+   * Converts Spark DataFrames into GraphX distributed RDDs:
+   *   - Vertices: RDD[(VertexId, String)]
+   *   - Edges:    RDD[Edge[Double]]
    */
   def buildGraph(
     spark: SparkSession,
@@ -214,12 +262,14 @@ object RoadGraphBuilder {
     roadsDF: DataFrame
   ): Graph[String, Double] = {
 
+    // Transform intersection rows into GraphX vertex tuples: (VertexId, Name)
     val vertices: RDD[(VertexId, String)] = intersectionsDF.rdd.map { row =>
       val id = row.getAs[Number]("id").longValue()
       val name = row.getAs[String]("name")
       (id, name)
     }
 
+    // Transform road rows into GraphX Edge objects: Edge(srcId, dstId, distance)
     val edges: RDD[Edge[Double]] = roadsDF.rdd.map { row =>
       val srcId = row.getAs[Number]("src_id").longValue()
       val dstId = row.getAs[Number]("dst_id").longValue()
@@ -227,19 +277,20 @@ object RoadGraphBuilder {
       Edge(srcId, dstId, distance)
     }
 
+    // Construct the distributed property graph
     Graph(vertices, edges)
   }
 
   /**
-   * Audits graph structural integrity independently against the source DataFrames.
-   *
-   * Validates:
-   * 1. Source row counts vs distinct valid IDs.
-   * 2. Graph vertices vs expected source vertices.
-   * 3. Phantom GraphX vertices (auto-inserted with null attributes when edge points to nonexistent node).
-   * 4. Dangling edges (referencing nonexistent source intersections).
-   * 5. Self-loops.
-   * 6. Graph connectivity: Weakly Connected Components and directed symmetry (reciprocity).
+   * ===========================================================================
+   * 🔍 PHASE 2: TOPOLOGICAL GRAPH INTEGRITY AUDIT
+   * ===========================================================================
+   * Verifies that the GraphX graph perfectly reconciles with the source CSV tables:
+   *   1. Vertex and Edge count parity.
+   *   2. Phantom Vertices detection (null attributes).
+   *   3. Dangling edges detection (missing endpoints).
+   *   4. Weakly Connected Components (WCC = 1 means no isolated islands!).
+   *   5. Directed Symmetry (100% Reciprocity).
    */
   def auditGraph(
     graph: Graph[String, Double],
@@ -252,7 +303,7 @@ object RoadGraphBuilder {
     val sourceVertexTotal = intersectionsDF.count()
     val sourceEdgeTotal = roadsDF.count()
 
-    // Collect valid source IDs directly from source DataFrame
+    // Extract valid source IDs
     val validSourceIds: Set[VertexId] = intersectionsDF
       .filter(col("id").isNotNull && col("id") > 0)
       .rdd.map(_.getAs[Number]("id").longValue())
@@ -261,13 +312,20 @@ object RoadGraphBuilder {
     val actualGraphVertices = graph.vertices.count()
     val actualGraphEdges = graph.edges.count()
 
-    // Phantom vertices: GraphX creates vertices with null attributes if an edge references a missing ID
+    // -------------------------------------------------------------------------
+    // 💡 BEGINNER LESSON: WHAT IS A "PHANTOM VERTEX" IN GRAPHX?
+    // In Apache Spark GraphX, if you create an Edge pointing to a Vertex ID
+    // that does not exist in your vertex table, GraphX DOES NOT CRASH!
+    // Instead, GraphX silently creates a "Phantom Vertex" with attribute 'null'.
+    // In production, this can hide missing intersection bugs!
+    // We check for null attributes here to guarantee ZERO phantom vertices!
+    // -------------------------------------------------------------------------
     val phantomVertices = graph.vertices.filter(v => v._2 == null || !validSourceIds.contains(v._1)).count()
     if (phantomVertices > 0) {
       diags :+= s"GraphX introduced $phantomVertices phantom vertices due to missing road endpoints."
     }
 
-    // Dangling edges: edges where either endpoint is not in validSourceIds
+    // Dangling edges: Roads pointing to nonexistent intersections
     val danglingEdges = graph.edges.filter(e =>
       !validSourceIds.contains(e.srcId) || !validSourceIds.contains(e.dstId)
     ).count()
@@ -281,11 +339,14 @@ object RoadGraphBuilder {
       diags :+= s"Graph contains $selfLoops self-loop edges."
     }
 
-    // Weakly connected components (undirected interpretation of the road network)
+    // Weakly connected components (WCC):
+    // Verifies whether every intersection can reach every other intersection
+    // ignoring direction. If WCC == 1, the city network is fully connected!
     val wcc = ConnectedComponents.run(graph)
     val wccCount = wcc.vertices.map(_._2).distinct().count()
 
-    // Directed symmetry (reciprocity): for every directed edge (u -> v), does (v -> u) exist?
+    // Directed symmetry (reciprocity):
+    // For every directed road segment (u -> v), does a reverse segment (v -> u) exist?
     val edgePairs = graph.edges.map(e => (e.srcId, e.dstId)).collect().toSet
     val missingReverseEdges = graph.edges.filter(e => !edgePairs.contains((e.dstId, e.srcId))).count()
     val isSymmetric = (missingReverseEdges == 0)
@@ -316,7 +377,7 @@ object RoadGraphBuilder {
   }
 
   /**
-   * Overloaded auditGraph method for backward compatibility with existing tests.
+   * Overloaded auditGraph method for backward compatibility with unit test fixtures.
    */
   def auditGraph(
     graph: Graph[String, Double],
@@ -366,10 +427,10 @@ object RoadGraphBuilder {
   }
 
   /**
-   * Production validation and builder method.
-   * Performs pre-construction source audit, builds graph, and runs full topological audit.
+   * Production validation and builder method:
+   * Runs Phase 1 source validation, builds the graph, and runs Phase 2 topological audit.
    *
-   * @param strict If true, throws IllegalArgumentException if any source or topology validation fails.
+   * @param strict If true, throws IllegalArgumentException if any validation check fails.
    */
   def validateAndBuildGraph(
     spark: SparkSession,
@@ -398,7 +459,8 @@ object RoadGraphBuilder {
   }
 
   /**
-   * Main entry point for standalone execution via 'sbt run'.
+   * Standalone main method:
+   * Can be launched from terminal using: 'sbt "runMain urbanix.graphx.RoadGraphBuilder"'
    */
   def main(args: Array[String]): Unit = {
     println("======================================================================")
@@ -468,6 +530,7 @@ object RoadGraphBuilder {
       println(s"[*] Weakly Connected Components    : ${graphAudit.weaklyConnectedComponentCount}")
       println(s"[*] Directed Symmetry (Reciprocity): ${if (graphAudit.isDirectedSymmetric) "100% Symmetric (Bidirectional Links)" else "Asymmetric"}")
 
+      // Find highest connected intersections
       val topOutDegrees = roadGraph.outDegrees.top(5)(Ordering.by(_._2))
       println("[*] Top Out-Degree Intersections:")
       topOutDegrees.foreach { case (id, deg) =>

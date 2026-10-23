@@ -1,63 +1,73 @@
 // ==============================================================================
-// Urbanix — Day 8: GraphX Congestion-Weighted Shortest-Path Routing Engine
-// ShortestPathPregel.scala — Distributed Pregel Single-Source Shortest Paths (SSSP)
+// 🌟 URBANIX — DISTRIBUTED GRAPHX PREGEL SHORTEST-PATH ROUTING ENGINE
+// ShortestPathPregel.scala — Bulk-Synchronous Parallel (BSP) Weighted SSSP
 // ==============================================================================
+// Welcome to the ShortestPathPregel engine! 👋
 //
-// 1. WHY THIS FILE EXISTS:
-// In Day 7, Urbanix built a static property graph of 20 intersections and 40 directed roads.
-// Today, we implement an active routing engine that computes the fastest (minimum travel time)
-// route from any origin intersection to all reachable intersections in the road network.
+// ------------------------------------------------------------------------------
+// 🎓 1. WHAT IS PREGEL? (THE DISTRIBUTED TELEPHONE GAME)
+// ------------------------------------------------------------------------------
+// Google's "Pregel" is an algorithm model designed for massive computer clusters.
+// Instead of one computer tracing paths like Dijkstra's algorithm in a loop,
+// every intersection (Vertex) acts like an independent thinker!
 //
-// 2. CRITICAL WARNING: WHY BUILT-IN ShortestPaths IS BANNED:
-// Apache Spark GraphX provides a built-in library called `org.apache.spark.graphx.lib.ShortestPaths`.
-// HOWEVER, that built-in library ONLY computes UNWEIGHTED HOP COUNTS (number of edges/turns)!
-// It completely ignores all edge attributes (distance, speed, travel time).
-// If we used `ShortestPaths`, a 2-hop route through a heavily congested road (10 km/h) would be
-// chosen over a 2-hop free-flowing highway (100 km/h) because both have 2 hops!
-// Therefore, Urbanix implements genuinely WEIGHTED shortest paths using GraphX's Pregel API.
-//
-// 3. THE PREGEL PROGRAMMING MODEL (FROM ABSOLUTE SCRATCH):
-// Google's Pregel is an iterative, vertex-centric, Bulk-Synchronous Parallel (BSP) framework:
-// Think of it as a synchronized "telephone game" across the distributed cluster:
+// Think of it as a synchronized "telephone game" across computers:
 //   - Superstep 0:
-//       Origin vertex knows its distance is 0.0 hours. All other vertices start at Infinity.
-//       Origin whispers to its immediate outgoing neighbors: "Hey, I can reach you in X hours!"
-//   - Superstep 1 (Barrier Synchronization):
-//       Each neighbor receives incoming whispers. If two neighbors whisper at once, `mergeMsg`
-//       keeps the faster route. `vprog` updates the vertex's memory with the new best time.
-//       If a vertex's time improved, it calculates new travel times and whispers to its own neighbors.
+//       The Origin vertex knows its distance is 0.0 hours.
+//       All other vertices start with distance = Infinity.
+//       Origin sends a message to its outgoing neighbors: "Hey, I can reach you in X hours!"
+//   - Superstep 1:
+//       Each neighbor receives incoming messages.
+//       If two neighbors message the same intersection, 'mergeMsg' picks the faster one.
+//       Then 'vprog' updates the intersection's memory with this new best time.
+//       If an intersection's time improved, it calculates new travel times and messages its own neighbors!
 //   - Supersteps 2 ... N:
-//       Rounds continue until no vertex can offer any neighbor a faster route (convergence / fixed point).
+//       The process repeats across the cluster until no intersection can find a faster route!
+//       This state is called "Convergence" (or fixed point).
 //
-// 4. PREGEL'S THREE CORE FUNCTIONS:
+// ------------------------------------------------------------------------------
+// ⚠️ 2. WHY APACHE SPARK'S BUILT-IN ShortestPaths IS NOT USED:
+// ------------------------------------------------------------------------------
+// Spark GraphX comes with a built-in library called 'org.apache.spark.graphx.lib.ShortestPaths'.
+// HOWEVER, that built-in tool ONLY counts UNWEIGHTED HOPS (number of road intersections)!
+// It completely ignores road lengths and traffic speeds!
+// Under built-in ShortestPaths, a 2-hop road in heavy gridlock (10 km/h) would be treated
+// as identical to a 2-hop free-flowing freeway (100 km/h).
+// That's why Urbanix implements a genuinely WEIGHTED Pregel shortest path algorithm here!
+//
+// ------------------------------------------------------------------------------
+// 🧩 3. PREGEL'S THREE CORE FUNCTIONS:
+// ------------------------------------------------------------------------------
 //   - vprog (Vertex Program):
-//       How an individual vertex updates its current state when new candidate messages arrive.
+//       How a vertex updates its internal state when a new candidate route message arrives.
 //   - sendMsg (Message Sender):
-//       Executed on every directed edge. If a vertex can offer its neighbor a shorter route
-//       through itself (srcDist + edgeWeight < dstDist), it sends a message along that directed edge.
+//       Executed on every directed edge. If a vertex can offer its neighbor a shorter path
+//       through itself (srcDist + edgeWeight < dstDist), it sends a message along that road.
 //   - mergeMsg (Message Reducer):
-//       If two upstream neighbors propose routes to the same vertex in the same round,
-//       mergeMsg compares them and retains the one with the minimum travel time.
-//
-// 5. UNITS & CONVERGENCE:
-//   - Edge weights: Travel time in hours (strictly positive and finite).
-//   - Distances: Cumulative travel time in hours.
-//   - Bounded iterations: In a graph with |V| vertices, any simple shortest path has at most |V| - 1
-//     edges. Thus, Pregel is guaranteed to converge in <= |V| - 1 supersteps (Bellman-Ford theorem).
+//       If multiple roads lead into the same intersection in the same round,
+//       mergeMsg compares them and keeps only the route with the minimum travel time!
 // ==============================================================================
 
 package urbanix.graphx
 
+// Import Apache Spark GraphX graph processing classes
 import org.apache.spark.graphx._
+
+// 'ClassTag' is a Scala feature that preserves type information at runtime for generic types [VD]
 import scala.reflect.ClassTag
 
 /**
- * Represents the routing state maintained on each vertex during and after Pregel execution.
+ * -----------------------------------------------------------------------------
+ * 📦 CASE CLASS: RouteState
+ * -----------------------------------------------------------------------------
+ * Represents the memory state stored on EACH vertex (intersection) during routing.
+ * In Scala, a 'case class' is a lightweight immutable data container with built-in
+ * getters, equals(), hashCode(), and toString() methods.
  *
  * @param distance Cumulative travel time from the origin to this vertex in hours.
- *                 Initialized to 0.0 for the origin, and Double.PositiveInfinity for others.
- * @param path The ordered sequence of VertexIds traversed from the origin to this vertex.
- *             e.g., List(1L, 3L, 4L) represents origin 1 -> 3 -> 4.
+ *                 (0.0 for Origin Node 1, and PositiveInfinity for all other nodes initially).
+ * @param path     The ordered sequence of 64-bit Long VertexIds traversed from origin to here.
+ *                 e.g. List(1L, 2L, 14L, 16L, 15L).
  */
 case class RouteState(
   distance: Double,
@@ -65,10 +75,13 @@ case class RouteState(
 )
 
 /**
- * Message passed along directed edges from an upstream vertex to a downstream neighbor.
+ * -----------------------------------------------------------------------------
+ * 📦 CASE CLASS: RouteMessage
+ * -----------------------------------------------------------------------------
+ * The data packet passed along directed road edges from an upstream node to its neighbor.
  *
- * @param proposedDistance The candidate cumulative travel time through the sender (src.distance + edge.weight).
- * @param proposedPath The candidate route sequence ending at the destination vertex.
+ * @param proposedDistance The candidate travel time through the sender (src.distance + edge.weight).
+ * @param proposedPath     The candidate sequence of intersections leading to the destination.
  */
 case class RouteMessage(
   proposedDistance: Double,
@@ -76,12 +89,15 @@ case class RouteMessage(
 )
 
 /**
- * Final formatted routing result for a single destination vertex, suitable for serialization and tests.
+ * -----------------------------------------------------------------------------
+ * 📦 CASE CLASS: RouteResult
+ * -----------------------------------------------------------------------------
+ * Clean, user-friendly output record representing the final routing decision for a destination.
  *
- * @param destinationId Target intersection ID.
- * @param totalTravelTimeHours Shortest travel time in hours (or Double.PositiveInfinity if unreachable).
- * @param path Ordered list of vertex IDs forming the route.
- * @param isReachable True if the vertex can be reached along directed edges from the origin.
+ * @param destinationId        The target intersection ID.
+ * @param totalTravelTimeHours Shortest travel time in hours (or PositiveInfinity if unreachable).
+ * @param path                 Ordered list of intersection IDs forming the fastest path.
+ * @param isReachable          True if a valid directed road path exists from origin to destination.
  */
 case class RouteResult(
   destinationId: VertexId,
@@ -89,27 +105,34 @@ case class RouteResult(
   path: List[VertexId],
   isReachable: Boolean
 ) {
+  /**
+   * Helper method: Converts hours into human-readable minutes (e.g. 0.317 hours -> 19.02 minutes).
+   */
   def totalTravelTimeMinutes: Double = {
     if (isReachable) totalTravelTimeHours * 60.0 else Double.PositiveInfinity
   }
 }
 
+/**
+ * Singleton object containing the Pregel Single-Source Shortest Path (SSSP) algorithms.
+ */
 object ShortestPathPregel {
 
   /**
-   * Initial sentinel message used to trigger Superstep 0 in Pregel.
-   * Carries Infinite distance so it never overwrites a valid vertex state.
+   * Initial sentinel message used to wake up all vertices in Superstep 0.
+   * Carries Infinite distance so it never accidentally overwrites valid vertex states.
+   * 'Nil' is Scala's empty list: List().
    */
   val InitialSentinelMessage: RouteMessage = RouteMessage(Double.PositiveInfinity, Nil)
 
   /**
-   * Executes weighted Single-Source Shortest Path (SSSP) on a GraphX property graph using Pregel.
+   * Executes weighted Single-Source Shortest Path (SSSP) across a distributed GraphX graph.
    *
-   * @tparam VD Vertex attribute type in the input graph (e.g. String intersection name).
-   * @param graph The GraphX graph with numeric Double edge weights (travel time in hours).
-   * @param origin The 64-bit Long VertexId of the starting intersection.
-   * @param maxIterations Optional iteration limit. Defaults to max(1, |V| - 1).
-   * @return A new GraphX graph where each vertex holds a RouteState(distance, path).
+   * @tparam VD       The type of vertex data (e.g. String intersection names).
+   * @param graph     The GraphX graph whose edge attributes are Double travel times in hours.
+   * @param origin    The 64-bit Long VertexId of the dispatch starting point (e.g. Node 1L).
+   * @param maxIterations Optional limit on Pregel rounds. Defaults to (V - 1) iterations.
+   * @return          A new GraphX graph where every vertex holds its optimal RouteState(distance, path).
    */
   def runShortestPath[VD: ClassTag](
     graph: Graph[VD, Double],
@@ -117,13 +140,16 @@ object ShortestPathPregel {
     maxIterations: Option[Int] = None
   ): Graph[RouteState, Double] = {
 
-    // 1. Validate empty graph
+    // -------------------------------------------------------------------------
+    // 🔍 STEP 1: DEFENSIVE GRAPH VALIDATION
+    // -------------------------------------------------------------------------
     val vertexCount = graph.vertices.count()
     if (vertexCount == 0L) {
+      // If graph has no vertices, return an empty graph immediately without error
       return graph.mapVertices((_, _) => RouteState(Double.PositiveInfinity, Nil))
     }
 
-    // 2. Validate that the requested origin actually exists in the graph
+    // Verify that the requested origin intersection actually exists in the graph!
     val originExists = graph.vertices.filter { case (id, _) => id == origin }.count() > 0
     if (!originExists) {
       throw new IllegalArgumentException(
@@ -131,7 +157,7 @@ object ShortestPathPregel {
       )
     }
 
-    // 3. Validate that all edge weights are finite and non-negative
+    // Verify all road edge weights are valid positive numbers (no negative or NaN distances)
     val invalidEdgeCount = graph.edges.filter(e => e.attr.isNaN || e.attr.isInfinity || e.attr < 0.0).count()
     if (invalidEdgeCount > 0L) {
       throw new IllegalArgumentException(
@@ -139,9 +165,11 @@ object ShortestPathPregel {
       )
     }
 
-    // 4. Initialize Vertex States:
+    // -------------------------------------------------------------------------
+    // 🏁 STEP 2: INITIALIZE VERTEX STATES
+    // -------------------------------------------------------------------------
     // Origin starts at distance 0.0 with path [origin].
-    // All other vertices start at distance Infinity with empty path [].
+    // Every other intersection starts at distance Infinity with an empty path [].
     val initialGraph: Graph[RouteState, Double] = graph.mapVertices { (id, _) =>
       if (id == origin) {
         RouteState(0.0, List(origin))
@@ -150,9 +178,13 @@ object ShortestPathPregel {
       }
     }
 
-    // 5. Determine maximum iteration bound:
-    // By the Bellman-Ford theorem, in a graph with V vertices, the longest simple shortest path
-    // contains at most V - 1 edges. Setting bound = max(1, V - 1) guarantees fixed-point convergence.
+    // -------------------------------------------------------------------------
+    // 📐 STEP 3: BOUND MAXIMUM ITERATIONS (BELLMAN-FORD THEOREM)
+    // -------------------------------------------------------------------------
+    // Mathematical Theorem: In any graph with V vertices, the longest simple path
+    // (a path with no repeated vertices) can have at most (V - 1) road segments!
+    // Therefore, Pregel is mathematically guaranteed to find the true shortest path
+    // in at most (V - 1) rounds!
     maxIterations.foreach { iters =>
       if (iters <= 0) {
         throw new IllegalArgumentException(s"maxIterations must be strictly positive (> 0), observed: $iters")
@@ -160,71 +192,69 @@ object ShortestPathPregel {
     }
     val iterationLimit = maxIterations.getOrElse(math.max(1, (vertexCount - 1).toInt))
 
-    // 6. Execute GraphX Pregel
+    // -------------------------------------------------------------------------
+    // 🚀 STEP 4: EXECUTE DISTRIBUTED PREGEL COMPUTATION
+    // -------------------------------------------------------------------------
     val routedGraph: Graph[RouteState, Double] = initialGraph.pregel(
       initialMsg = InitialSentinelMessage,
       maxIterations = iterationLimit,
-      activeDirection = EdgeDirection.Out
+      activeDirection = EdgeDirection.Out // Only send messages forward along directed edges!
     )(
-      // ------------------------------------------------------------------------
-      // VERTEX PROGRAM (vprog):
-      // Runs on each vertex receiving incoming messages.
-      // Compares the vertex's current distance with the incoming proposed distance.
-      // If the incoming proposal is strictly shorter, update state with the new distance and path.
-      // ------------------------------------------------------------------------
+      // -----------------------------------------------------------------------
+      // A) VERTEX PROGRAM (vprog):
+      // Runs on each vertex when incoming candidate messages arrive.
+      // If the incoming proposed travel time is faster than the current best time,
+      // update the vertex's state with the new distance and path sequence!
+      // -----------------------------------------------------------------------
       vprog = (vertexId: VertexId, currentState: RouteState, incomingMsg: RouteMessage) => {
         if (incomingMsg.proposedDistance < currentState.distance) {
           RouteState(incomingMsg.proposedDistance, incomingMsg.proposedPath)
         } else {
-          currentState
+          currentState // Keep existing best route
         }
       },
 
-      // ------------------------------------------------------------------------
-      // SEND MESSAGE (sendMsg):
-      // Runs on every directed edge triplet (src) ---[edge.weight]---> (dst).
-      // If the source vertex has a known finite distance, propose a candidate route to dst:
-      //   proposedDistance = src.distance + edge.weight
-      // STRICT DIRECTED SEMANTICS:
-      // Messages are ONLY emitted along directed outgoing edges toward triplet.dstId.
-      // We NEVER traverse backwards from dst to src unless an explicit reverse edge exists.
-      // ------------------------------------------------------------------------
+      // -----------------------------------------------------------------------
+      // B) SEND MESSAGE (sendMsg):
+      // Runs across every directed road edge triplet: (source) ---[weight]---> (destination).
+      // If source vertex has a known finite route, propose a path through itself to neighbor:
+      //   proposedTime = source.distance + road.travel_time
+      // -----------------------------------------------------------------------
       sendMsg = (triplet: EdgeTriplet[RouteState, Double]) => {
         val srcDist = triplet.srcAttr.distance
         val edgeWeight = triplet.attr
 
+        // If source has been reached and has a valid distance
         if (!srcDist.isInfinity && srcDist >= 0.0) {
           val proposedDist = srcDist + edgeWeight
 
-          // Only propose if the candidate route is strictly faster than destination's current distance
+          // Only propose if this route is faster than the neighbor's current known time!
           if (proposedDist < triplet.dstAttr.distance) {
+            // Append destination ID to the path: candidatePath = src.path + dstId
             val candidatePath = triplet.srcAttr.path :+ triplet.dstId
             Iterator((triplet.dstId, RouteMessage(proposedDist, candidatePath)))
           } else {
-            Iterator.empty
+            Iterator.empty // No message needed; cannot improve neighbor's route
           }
         } else {
-          // Source vertex is still unreachable; cannot propose any routes through it yet
-          Iterator.empty
+          Iterator.empty // Source hasn't been reached yet
         }
       },
 
-      // ------------------------------------------------------------------------
-      // MERGE MESSAGE (mergeMsg):
-      // Runs when multiple upstream neighbors propose routes to the same vertex in the same round.
-      // Compares candidate proposals and retains the one with the MINIMUM travel time.
-      // DETERMINISTIC TIE-BREAKING:
-      // If two competing paths offer the exact same travel time, break ties lexicographically
-      // by comparing the vertex ID path strings (e.g. "1,2,4" vs "1,3,4").
-      // This prevents route flapping across distributed executor partitions.
-      // ------------------------------------------------------------------------
+      // -----------------------------------------------------------------------
+      // C) MERGE MESSAGE (mergeMsg):
+      // Runs if multiple upstream roads propose routes to the same intersection
+      // in the EXACT same round. Keeps the candidate proposal with the MINIMUM time!
+      // Deterministic tie-breaking: If two routes have the exact same travel time,
+      // compare their path strings lexicographically to prevent route flickering.
+      // -----------------------------------------------------------------------
       mergeMsg = (msgA: RouteMessage, msgB: RouteMessage) => {
         if (msgA.proposedDistance < msgB.proposedDistance) {
           msgA
         } else if (msgB.proposedDistance < msgA.proposedDistance) {
           msgB
         } else {
-          // Deterministic tie-breaking on equal cost
+          // Tie-breaking on identical costs
           val pathAStr = msgA.proposedPath.mkString(",")
           val pathBStr = msgB.proposedPath.mkString(",")
           if (pathAStr <= pathBStr) msgA else msgB
@@ -232,10 +262,11 @@ object ShortestPathPregel {
       }
     )
 
-    // 7. Verify Convergence (Defect Guard against Incomplete Execution):
-    // If Pregel terminated because it hit a user-configured iterationLimit while further edge
-    // relaxations were still possible, detect and report incomplete convergence rather than
-    // silently presenting incomplete distances as final results.
+    // -------------------------------------------------------------------------
+    // 🛡️ STEP 5: VERIFY COMPLETE FIXED-POINT CONVERGENCE
+    // -------------------------------------------------------------------------
+    // Guard against artificial limits: If the user provided a maxIterations limit
+    // that was too small, check if any edge could still be improved.
     val unrelaxedEdgesCount = routedGraph.triplets.filter { triplet =>
       val srcDist = triplet.srcAttr.distance
       val dstDist = triplet.dstAttr.distance
@@ -254,13 +285,12 @@ object ShortestPathPregel {
   }
 
   /**
-   * High-level convenience function that executes SSSP and collects the results
-   * into a driver-side Map[VertexId, RouteResult].
+   * High-level convenience method:
+   * Executes SSSP and collects the results into a driver-side Scala Map[VertexId, RouteResult].
    *
-   * @param graph The GraphX property graph.
+   * @param graph  The GraphX property graph.
    * @param origin Starting intersection ID.
-   * @param maxIterations Optional iteration limit.
-   * @return Map of VertexId -> RouteResult containing travel times, paths, and reachability.
+   * @return       Map of destination ID -> RouteResult.
    */
   def computeRoutes[VD: ClassTag](
     graph: Graph[VD, Double],
@@ -269,6 +299,7 @@ object ShortestPathPregel {
   ): Map[VertexId, RouteResult] = {
     val routedGraph = runShortestPath(graph, origin, maxIterations)
 
+    // Collect vertex states from distributed executor nodes to the driver computer
     routedGraph.vertices.collect().map { case (destId, state) =>
       val isReachable = !state.distance.isInfinity && state.path.nonEmpty
       destId -> RouteResult(
@@ -281,7 +312,7 @@ object ShortestPathPregel {
   }
 
   /**
-   * Alias for runShortestPath providing exact compatibility with alternate naming conventions.
+   * Compatibility alias for runShortestPath.
    */
   def computeShortestPaths[VD: ClassTag](
     graph: Graph[VD, Double],
@@ -290,7 +321,7 @@ object ShortestPathPregel {
   ): Graph[RouteState, Double] = runShortestPath(graph, originId, maxIterations)
 
   /**
-   * Helper to retrieve the shortest route to a specific destination vertex.
+   * Helper function: Retrieves the shortest path to a single specific destination intersection.
    */
   def tracePath(
     resultGraph: Graph[RouteState, Double],

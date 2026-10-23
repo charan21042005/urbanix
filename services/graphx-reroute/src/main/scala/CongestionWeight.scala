@@ -1,99 +1,123 @@
 // ==============================================================================
-// Urbanix — Day 8: GraphX Congestion-Weighted Shortest-Path Routing Engine
+// 🌟 URBANIX — GRAPHX CONGESTION-WEIGHTED SHORTEST-PATH ROUTING ENGINE
 // CongestionWeight.scala — Travel-Time Edge Cost Modeling & Defensive Clamping
 // ==============================================================================
-// In a smart city routing engine, a road's routing cost should not merely represent
-// Euclidean physical distance. Instead, routing should optimize for TRAVEL TIME:
-// How long will a vehicle take to traverse this specific road corridor?
+// Welcome to the CongestionWeight module! 👋
 //
-// Formula:
-//   travel_time_hours = base_distance_km / speed_kmph
+// ------------------------------------------------------------------------------
+// 🎓 WHAT DOES THIS SCALA FILE DO?
+// ------------------------------------------------------------------------------
+// In navigation applications (like Google Maps or Apple Maps), roads should NOT
+// simply be weighted by physical distance (kilometers).
 //
-// Units:
-//   - base_distance_km: Distance along the road in kilometers (km > 0)
-//   - speed_kmph: Average or predicted vehicle speed in kilometers per hour (km/h > 0)
-//   - Result: Estimated travel time in hours (hours > 0)
+// WHY DISTANCE-BASED ROUTING FAILS IN A SMART CITY:
+// Imagine two routes:
+//   Route A: A short 3 km road crawling in bumper-to-bumper traffic at 10 km/h.
+//            Travel Time = 3 km / 10 km/h = 0.30 hours (18 minutes!).
+//   Route B: A longer 5 km highway moving freely at 45 km/h.
+//            Travel Time = 5 km / 45 km/h = 0.11 hours (under 7 minutes!).
 //
-// Why Distance Alone Fails:
-//   A 3 km highway segment crawling at 10 km/h takes 18 minutes (0.30 hours).
-//   A 5 km arterial segment moving at 45 km/h takes 6.67 minutes (0.111 hours).
-//   Minimizing distance chooses the 3 km road; minimizing travel time chooses the 5 km road!
+// If our graph engine only looked at distance, it would send ambulances and commuters
+// straight into the 3 km bottleneck!
+// Therefore, Urbanix optimizes for TRAVEL TIME:
 //
-// Division-by-Zero & Gridlock Floor (1.0 km/h):
-//   If a sensor reports 0.0 km/h (severe traffic jam / complete gridlock), dividing
-//   distance by 0 would produce Double.PositiveInfinity or NaN, crashing the downstream
-//   GraphX Pregel relaxation algorithm.
-//   To model extreme gridlock defensibly, speeds below `minSpeedFloorKmph` (default: 1.0 km/h)
-//   are clamped to 1.0 km/h. At 1.0 km/h, a 3 km road costs 3.0 hours, accurately penalizing
-//   the road without breaking numerical stability.
+//               base_distance_km
+//   travel_time = -----------------
+//                    speed_kmph
+//
+// ------------------------------------------------------------------------------
+// 🛡️ DIVISION-BY-ZERO & THE GRIDLOCK CLAMP (1.0 km/h):
+// ------------------------------------------------------------------------------
+// What happens if a traffic sensor reports a speed of 0.0 km/h (complete gridlock)?
+// In mathematics, dividing by zero produces Infinity:
+//   3 km / 0.0 km/h = PositiveInfinity (or NaN)!
+// Infinity would crash the distributed GraphX Pregel algorithm downstream.
+// To prevent crashes, this file clamps any velocity below 1.0 km/h to exactly 1.0 km/h.
+// A 3 km road at 1.0 km/h takes 3.0 hours—heavily penalizing the road without breaking math!
 // ==============================================================================
 
 package urbanix.graphx
 
+// 'package' groups related Scala classes together into a logical namespace.
+// In Scala, 'object' declares a SINGLETON—a unique object with static-like functions.
+// You don't need to type 'new CongestionWeight()'; you can call 'CongestionWeight.calculateTravelTimeHours(...)' directly!
 object CongestionWeight {
 
   /**
    * Default minimum speed floor in km/h used to prevent division by zero during gridlock.
+   * 'val' declares an immutable (read-only) constant.
    */
   val DefaultMinSpeedFloorKmph: Double = 1.0
 
   /**
-   * Calculates the estimated travel time in hours for a road segment given its base distance
-   * and current or predicted vehicle velocity.
+   * Calculates estimated travel time in hours for a directed road segment.
    *
-   * @param baseDistanceKm Physical length of the road in kilometers (must be strictly positive and finite).
-   * @param speedKmph Vehicle speed in kilometers per hour (must be finite and non-negative).
-   * @param minSpeedFloorKmph Minimum speed clamp used when speed is below this threshold (default: 1.0 km/h).
-   * @return Estimated travel time in hours (strictly positive and finite).
-   * @throws IllegalArgumentException if distance or speed inputs are non-finite, negative, or invalid.
+   * @param baseDistanceKm    Physical road distance in kilometers (must be > 0.0).
+   * @param speedKmph         Current or predicted vehicle velocity in km/h.
+   * @param minSpeedFloorKmph Minimum speed clamp (default: 1.0 km/h).
+   * @return                  Estimated travel time in hours.
    */
   def calculateTravelTimeHours(
     baseDistanceKm: Double,
     speedKmph: Double,
     minSpeedFloorKmph: Double = DefaultMinSpeedFloorKmph
   ): Double = {
-    // 1. Validate baseDistanceKm
+
+    // -------------------------------------------------------------------------
+    // 🔍 STEP 1: DEFENSIVE INPUT VALIDATION
+    // -------------------------------------------------------------------------
+    // 'isNaN' checks for "Not a Number". 'isInfinity' checks for overflow.
+    // In production systems, we reject corrupted inputs before doing math!
     if (baseDistanceKm.isNaN || baseDistanceKm.isInfinity) {
       throw new IllegalArgumentException(s"Base distance cannot be NaN or Infinite: $baseDistanceKm")
     }
+    // A road cannot have zero or negative length in the real world
     if (baseDistanceKm <= 0.0) {
       throw new IllegalArgumentException(s"Base distance must be strictly positive (> 0.0 km), observed: $baseDistanceKm")
     }
 
-    // 2. Validate minSpeedFloorKmph
+    // Validate the minimum speed floor parameter
     if (minSpeedFloorKmph.isNaN || minSpeedFloorKmph.isInfinity || minSpeedFloorKmph <= 0.0) {
       throw new IllegalArgumentException(s"Minimum speed floor must be strictly positive and finite, observed: $minSpeedFloorKmph")
     }
 
-    // 3. Validate speedKmph
+    // Validate speed parameter
     if (speedKmph.isNaN || speedKmph.isInfinity) {
       throw new IllegalArgumentException(s"Vehicle speed cannot be NaN or Infinite: $speedKmph")
     }
+    // Vehicles cannot travel at negative speed in our routing model
     if (speedKmph < 0.0) {
       throw new IllegalArgumentException(s"Vehicle speed cannot be negative (< 0.0 km/h), observed: $speedKmph")
     }
 
-    // 4. Apply gridlock floor clamping:
-    // If speed is zero or very close to zero, clamp to minSpeedFloorKmph to avoid division by zero.
+    // -------------------------------------------------------------------------
+    // 🛡️ STEP 2: APPLY GRIDLOCK FLOOR CLAMPING
+    // -------------------------------------------------------------------------
+    // In Scala, 'if / else' is an expression that yields a value directly!
     val effectiveSpeedKmph = if (speedKmph < minSpeedFloorKmph) {
-      minSpeedFloorKmph
+      minSpeedFloorKmph // Clamp 0.0 km/h to 1.0 km/h
     } else {
-      speedKmph
+      speedKmph         // Keep normal velocity
     }
 
-    // 5. Compute travel time in hours
+    // -------------------------------------------------------------------------
+    // ⏱️ STEP 3: CALCULATE TRAVEL TIME IN HOURS
+    // -------------------------------------------------------------------------
     val travelTimeHours = baseDistanceKm / effectiveSpeedKmph
 
-    // Defensive assertion: result must be strictly positive and finite
+    // Final safety check: Result must be a valid positive number
     if (travelTimeHours.isNaN || travelTimeHours.isInfinity || travelTimeHours <= 0.0) {
       throw new IllegalStateException(s"Calculated travel time is invalid ($travelTimeHours) for dist=$baseDistanceKm, speed=$effectiveSpeedKmph")
     }
 
+    // In Scala, the last expression evaluated in a function is automatically returned!
+    // (You don't even have to type 'return travelTimeHours')
     travelTimeHours
   }
 
   /**
-   * Helper function to convert hours to minutes for human-readable logging and dashboards.
+   * Helper function: Converts hours to minutes for operator dashboards and logging.
+   * Example: 0.25 hours * 60 = 15.0 minutes.
    */
   def hoursToMinutes(hours: Double): Double = hours * 60.0
 }

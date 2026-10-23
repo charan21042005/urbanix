@@ -233,6 +233,14 @@ Evaluated on the 20-vertex, 40-edge directed municipal road network topology:
 | **Emergency High-Priority Path** | Node 1 | Node 17 | `[1, 2, 14, 17]` | **15.4210 minutes** | Verified via sbt unit test |
 | **Per-Hop Velocity Lower Bound** | Any | Any | Clamped at $v \ge 1.0\text{ km/h}$ | Zero division singularities | Guaranteed Bellman-Ford stability |
 
+#### ⚙️ Module M5 Core Graph Architecture (`services/graphx-reroute/src/main/scala/`)
+The distributed routing subsystem comprises 5 specialized Scala components working in synergy:
+1. [`RoadGraphBuilder.scala`](services/graphx-reroute/src/main/scala/RoadGraphBuilder.scala): Two-phase pre-construction data validation and GraphX property multigraph construction. Audits 20 intersections and 40 directed edges for zero dangling edges, zero phantom vertices, and 100% directed reciprocity.
+2. [`CongestionWeight.scala`](services/graphx-reroute/src/main/scala/CongestionWeight.scala): Mathematical travel-time cost calculator $\text{cost} = \frac{d}{\max(v, 1.0)}$. Enforces a strict $1.0\text{ km/h}$ gridlock velocity floor to prevent division-by-zero singularities during simulated traffic jams.
+3. [`ShortestPathPregel.scala`](services/graphx-reroute/src/main/scala/ShortestPathPregel.scala): Custom weighted Single Source Shortest Path (SSSP) via Bulk Synchronous Parallel (BSP) Pregel message passing (`vprog`, `sendMsg`, `mergeMsg`) with deterministic lexicographic tie-breaking, overcoming Spark's unweighted hop count limitation.
+4. [`FullGraphRoutingApp.scala`](services/graphx-reroute/src/main/scala/FullGraphRoutingApp.scala): Multi-stage executable verification suite verifying Pregel behavior against a 4-node hand-calculated oracle ($A \to C \to D$), dynamic congestion rerouting ($A \to B \to D$), and full 20-node metropolitan graph traversal.
+5. [`RouteRecommender.scala`](services/graphx-reroute/src/main/scala/RouteRecommender.scala): Continuous closed-loop production consumer bridging PySpark MLlib and Scala GraphX. Polls `data/feature_table/traffic`, deterministically selects the latest predictions using window functions, reweights edges by destination zone, and publishes recommended route snapshots to `data/recommended_routes/` via `mode("overwrite")`.
+
 ---
 
 ## ⚡ Quick Start & Reproduction Runbook
@@ -367,9 +375,9 @@ urbanix/
 │   └── day-05/                       # Model evaluation JSON manifests & metric logs
 ├── services/                         # Core Computational Services Tier
 │   ├── graphx-reroute/               # Module M5: Scala 2.12 Spark GraphX Subsystem
-│   │   ├── src/main/scala/           # RoadGraph, PregelShortestPath, RouteRecommender
+│   │   ├── src/main/scala/           # RoadGraphBuilder, CongestionWeight, ShortestPathPregel, FullGraphRoutingApp, RouteRecommender
 │   │   ├── src/test/scala/           # 43 sbt unit and integration specification tests
-│   │   └── build.sbt                 # sbt dependency definitions (Spark 3.5.1, GraphX)
+│   │   └── build.sbt                 # sbt dependency definitions (Spark 3.5.0, GraphX)
 │   ├── producers/                    # Module M1: Multi-Sensor Telemetry Ingestion
 │   │   ├── traffic.py, aqi.py, ...   # Replay producers with callbacks & backoff logic
 │   │   ├── run_all.py                # Multi-producer process supervisor
