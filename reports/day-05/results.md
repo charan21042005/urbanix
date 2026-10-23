@@ -1,6 +1,6 @@
 # Urbanix Day 5 — Model Training & Evaluation Results
 
-**Evaluation Date (UTC):** 2026-10-21T08:07:34.475705+00:00  
+**Evaluation Date (UTC):** 2026-10-23T16:36:50.504267+00:00  
 **Training Dataset:** `data/train` (365 rows, 80% chronological split up to `2012-03-01 06:20:00 UTC`)  
 **Testing Dataset:** `data/test` (100 rows, held-out split starting `2012-03-01 06:25:00 UTC`)  
 **Target Variable:** `next_avg_speed_kmph` (observed speed in the next consecutive 5-minute interval)  
