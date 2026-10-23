@@ -1,57 +1,199 @@
+# ==============================================================================
+# 🐳 URBANIX — DISTRIBUTED CLUSTER INFRASTRUCTURE (DOCKER COMPOSE)
+# infra/docker-compose.yml — Multi-Container Big Data Orchestration Specification
+# ==============================================================================
+# Welcome to the Urbanix Infrastructure configuration file! 👋
+#
+# ------------------------------------------------------------------------------
+# 🎓 WHAT IS YAML? (A QUICK LESSON FOR BEGINNERS)
+# ------------------------------------------------------------------------------
+# YAML stands for "YAML Ain't Markup Language".
+# It is a super clean, human-readable format used by developers to configure systems.
+# Key rules in YAML:
+#   1. Indentation Matters! Hierarchy is defined using spaces (NEVER use the Tab key!).
+#   2. Key-Value Pairs: Written as 'key: value'.
+#   3. Lists: Items starting with a dash '-' are elements in a list.
+#   4. Comments: Any line starting with a hash '#' is a comment ignored by Docker.
+#
+# ------------------------------------------------------------------------------
+# 🎓 WHAT IS DOCKER & DOCKER COMPOSE?
+# ------------------------------------------------------------------------------
+# - Docker: Instead of installing Kafka, Spark, and Zookeeper directly on your computer
+#   (which can cause version conflicts and messy PATH issues), Docker runs them inside
+#   isolated, pre-packaged software bubbles called "Containers".
+# - Docker Compose: A tool that lets you define and launch multiple containers at once
+#   with a single terminal command: 'docker compose up -d'!
+#
+# ------------------------------------------------------------------------------
+# 🏗️ THE 4 MICROSERVICES IN THIS CLUSTER:
+# ------------------------------------------------------------------------------
+# 1. Zookeeper: Coordinates cluster state and leader elections for Kafka.
+# 2. Apache Kafka: High-throughput distributed event messaging backbone (port 9092).
+# 3. Apache Spark Master: Cluster manager coordinating distributed compute jobs (UI port 8081).
+# 4. Apache Spark Worker: Computational worker node executing streaming tasks and ML jobs.
+# ==============================================================================
+
+# 'version': Specifies the Docker Compose file format specification version (3.8).
 version: '3.8'
 
+# 'services': This section defines all the independent containerized applications to start!
 services:
+
+  # ----------------------------------------------------------------------------
+  # 🦁 SERVICE 1: APACHE ZOOKEEPER (COORDINATION ENSEMBLE)
+  # ----------------------------------------------------------------------------
+  # Apache Kafka uses Zookeeper to coordinate brokers, store cluster configuration,
+  # track topic partitions, and elect leader brokers if a failure occurs.
   zookeeper:
+    # 'image': The pre-built software image downloaded from the Docker Hub registry.
+    # We use Confluent's official enterprise-tested Zookeeper image, version 7.5.0.
     image: confluentinc/cp-zookeeper:7.5.0
+
+    # 'container_name': Gives our running container a friendly, human-readable name.
+    # Instead of a random string like 'infra_zookeeper_1', you can type 'docker logs zookeeper'!
     container_name: zookeeper
+
+    # 'environment': Injects environment variables (settings) into the container when it boots.
     environment:
+      # ZOOKEEPER_CLIENT_PORT: The network port where client applications (like Kafka) connect (2181).
       ZOOKEEPER_CLIENT_PORT: 2181
+      # ZOOKEEPER_TICK_TIME: The basic time unit (in milliseconds) used by Zookeeper for heartbeats.
+      # 2000 ms = 2 seconds.
       ZOOKEEPER_TICK_TIME: 2000
+
+    # 'networks': Connects this container to our private virtual software network.
+    # Containers on the same network can talk to each other using their service names!
     networks:
       - urbanix-network
 
+
+  # ----------------------------------------------------------------------------
+  # 📨 SERVICE 2: APACHE KAFKA (DISTRIBUTED EVENT STREAMING BACKBONE)
+  # ----------------------------------------------------------------------------
+  # Kafka is our high-speed message queue. Python sensor scripts publish data to it,
+  # and Apache Spark Structured Streaming continuously consumes data from it!
   kafka:
+    # Official Confluent Kafka broker image, version 7.5.0 (matching Zookeeper).
     image: confluentinc/cp-kafka:7.5.0
+
     container_name: kafka
+
+    # 'depends_on': Specifies container startup order!
+    # Tells Docker: "Wait for Zookeeper to start BEFORE attempting to start Kafka!"
     depends_on:
       - zookeeper
+
+    # 'ports': Maps a port from your real host computer to the container inside!
+    # Format: "<HOST_PORT>:<CONTAINER_PORT>"
+    # "9092:9092" means: requests to 'localhost:9092' on Windows are forwarded
+    # directly into port 9092 inside the Kafka container!
     ports:
       - "9092:9092"
+
     environment:
+      # KAFKA_BROKER_ID: Every broker in a Kafka cluster must have a unique integer ID.
+      # Since we are running a single-broker local cluster, we assign it ID 1.
       KAFKA_BROKER_ID: 1
+
+      # KAFKA_ZOOKEEPER_CONNECT: Tells Kafka where to find Zookeeper on the internal network.
+      # Notice how we use 'zookeeper:2181' rather than an IP address!
+      # Docker's built-in DNS automatically resolves the name 'zookeeper' to its container IP!
       KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
+
+      # ------------------------------------------------------------------------
+      # 💡 BEGINNER LESSON: KAFKA DUAL-LISTENER ARCHITECTURE
+      # Why do we need two different listeners (PLAINTEXT vs PLAINTEXT_HOST)?
+      #   1. Containers inside Docker need to talk to Kafka using Docker's internal network ('kafka:29092').
+      #   2. Python scripts on your Windows host machine need to talk to Kafka via 'localhost:9092'!
+      # If you only configured one, either Docker containers or host scripts would fail to connect!
+      # ------------------------------------------------------------------------
+      # Protocol mapping defining that both listeners use unencrypted plain text for local dev:
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+
+      # Interfaces Kafka binds to inside the container:
+      # '0.0.0.0' means "listen on all available network interfaces".
       KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,PLAINTEXT_HOST://0.0.0.0:9092
+
+      # The addresses Kafka hands back to connecting clients telling them where to send data:
+      # Internal containers use 'kafka:29092'; host computer scripts use 'localhost:9092'.
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+
+      # Tells Kafka which listener internal brokers use to talk to each other:
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+
+      # Single-node cluster settings:
+      # In large enterprise production, data is copied across 3 or more servers (replication factor = 3).
+      # Since our development cluster has 1 broker, we set replication factors to 1.
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+
     networks:
       - urbanix-network
 
+
+  # ----------------------------------------------------------------------------
+  # ⚡ SERVICE 3: APACHE SPARK MASTER (DISTRIBUTED COMPUTE COORDINATOR)
+  # ----------------------------------------------------------------------------
+  # Spark Master is the coordinator of our distributed big data engine.
+  # It manages worker nodes, accepts computing jobs, and provides an administrative Web UI.
   spark-master:
+    # Official Apache Spark image from Docker Hub, version 3.5.1
     image: apache/spark:3.5.1
+
     container_name: spark-master
+
+    # 'command': The shell command executed inside the container when it launches.
+    # Launches the Spark Master Java class ('org.apache.spark.deploy.master.Master').
     command: /opt/spark/bin/spark-class org.apache.spark.deploy.master.Master
+
     ports:
-      # Note: Spark internally uses port 8080.
-      # Host port 8081 is used because host port 8080 is already occupied on this development machine.
-      # This does NOT change Spark's internal port.
-      - "8081:8080"
-      - "7077:7077"
+      # ------------------------------------------------------------------------
+      # 💡 PORT MAPPING NOTE:
+      # Spark Master's internal web dashboard uses port 8080 by default.
+      # However, on many developer computers, port 8080 is already used by other apps.
+      # Therefore, we map HOST port 8081 -> CONTAINER port 8080 ("8081:8080").
+      # You can view the Spark Master Web UI in your browser at: http://localhost:8081!
+      # ------------------------------------------------------------------------
+      - "8081:8080" # Spark Master Web UI
+      - "7077:7077" # Spark Master RPC port (used by workers and driver apps to submit jobs)
+
     networks:
       - urbanix-network
 
+
+  # ----------------------------------------------------------------------------
+  # 👷 SERVICE 4: APACHE SPARK WORKER (DISTRIBUTED COMPUTE WORKER)
+  # ----------------------------------------------------------------------------
+  # The Worker node does the heavy lifting: running stream processing queries,
+  # training MLlib machine learning models, and executing distributed tasks.
   spark-worker:
     image: apache/spark:3.5.1
+
     container_name: spark-worker
+
+    # Wait for Spark Master to start before launching the worker
     depends_on:
       - spark-master
+
+    # Launch the Worker Java class and connect it to the Spark Master RPC address!
+    # Parameters explained:
+    #   'spark://spark-master:7077': The Master URL on the internal Docker network.
+    #   '-m 1G': Allocates 1 Gigabyte of memory (RAM) to this worker.
+    #   '-c 1':  Allocates 1 CPU core to this worker.
     command: /opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077 -m 1G -c 1
+
     networks:
       - urbanix-network
 
+
+# ==============================================================================
+# 🌐 STEP 13: DOCKER VIRTUAL NETWORK SPECIFICATION
+# ==============================================================================
+# Docker allows us to create isolated virtual software networks.
+# 'driver: bridge' creates a software bridge network on your computer.
+# All containers attached to 'urbanix-network' can talk to each other securely
+# using their container names as hostnames (e.g. 'zookeeper', 'kafka', 'spark-master')!
 networks:
   urbanix-network:
     driver: bridge
