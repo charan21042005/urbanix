@@ -22,22 +22,26 @@ Verification Capabilities:
    Exits with status 0 only if all assertions pass on non-empty datasets, or non-zero with explicit error report.
 """
 
-import os
-import sys
-import argparse
-import logging
-from typing import Dict, Any, List, Optional
+# --- Standard Library Imports ---
+import os        # File system path resolution and directory existence checks
+import sys       # System arguments, runtime parameters, and exit codes
+import argparse  # Command-line interface parsing
+import logging   # Structured operational logging with timestamps and severity levels
+from typing import Dict, Any, List, Optional  # Static type hint annotations
 
-# Ensure worker python matches driver python runtime
+# Ensure worker Python subprocesses use the identical Python interpreter as the driver process
+# This prevents Windows PySpark worker pickling and version mismatch exceptions
 os.environ.setdefault("PYSPARK_PYTHON", sys.executable)
 os.environ.setdefault("PYSPARK_DRIVER_PYTHON", sys.executable)
 
+# Try importing PySpark SQL modules; allow None if PySpark is not installed in current environment
 try:
     from pyspark.sql import SparkSession
     from pyspark.sql.functions import col, unix_timestamp
 except ImportError:
     SparkSession = None
 
+# Configure standard logger formatting
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] [Urbanix-Verifier] %(message)s",
@@ -45,8 +49,10 @@ logging.basicConfig(
 logger = logging.getLogger("UrbanixVerifier")
 
 
+# Expected schema rules and column constraints for each independent streaming feature dataset
 EXPECTED_SCHEMAS = {
     "traffic": {
+        # Columns that MUST exist in the Parquet feature table
         "required_cols": [
             "window_start",
             "window_end",
@@ -57,6 +63,7 @@ EXPECTED_SCHEMAS = {
             "max_speed_kmph",
             "zone_name",
         ],
+        # Columns that MUST NOT exist (ensuring zero fabricated/hallucinated sensor metrics)
         "prohibited_cols": ["vehicle_count", "co2"],
     },
     "aqi": {
@@ -92,10 +99,18 @@ EXPECTED_SCHEMAS = {
 def check_directory(dir_path: str) -> Dict[str, Any]:
     """
     Checks existence and parquet file content of a directory.
+
+    Parameters:
+        dir_path (str): Physical directory path to inspect.
+
+    Returns:
+        Dict[str, Any]: Dictionary reporting existence, emptiness, and parquet file count.
     """
+    # Check if the folder physically exists on disk
     if not os.path.exists(dir_path):
         return {"exists": False, "empty": True, "parquet_files": 0}
 
+    # Identify valid, non-hidden Parquet files within the folder
     parquet_files = [
         f for f in os.listdir(dir_path) if f.endswith(".parquet") and not f.startswith(".")
     ]
@@ -112,16 +127,28 @@ def verify_dataset(
     """
     Loads and validates a single stream feature dataset.
     Returns True if all checks pass, False otherwise.
+
+    Parameters:
+        spark (SparkSession): Active local SparkSession instance.
+        stream_name (str): Stream identifier ('traffic', 'aqi', or 'weather').
+        dir_path (str): Directory path containing the Parquet table.
+        rules (Dict[str, Any]): Schema verification rules from EXPECTED_SCHEMAS.
+
+    Returns:
+        bool: True if dataset exists, is non-empty, and satisfies all invariants; False otherwise.
     """
+    # Print section banner
     print("\n" + "=" * 70)
     print(f"VERIFYING FEATURE DATASET: {stream_name.upper()} ({dir_path})")
     print("=" * 70)
 
+    # 1. Directory existence check
     dir_status = check_directory(dir_path)
     if not dir_status["exists"]:
         logger.error(f"Directory DOES NOT EXIST: {dir_path}")
         return False
 
+    # 2. Directory emptiness check
     if dir_status["empty"]:
         logger.error(
             f"Directory exists but is EMPTY (0 parquet part files found in {dir_path})."
@@ -134,12 +161,14 @@ def verify_dataset(
 
     logger.info(f"Found {dir_status['parquet_files']} Parquet data file(s). Loading into Spark...")
 
+    # Safely load the Parquet dataset using PySpark SQL
     try:
         df = spark.read.parquet(dir_path)
     except Exception as e:
         logger.error(f"Failed to read Parquet data from {dir_path}: {e}")
         return False
 
+    # Count rows in the distributed dataset
     total_rows = df.count()
     print(f"[*] Total rows recorded: {total_rows}")
 
@@ -147,6 +176,7 @@ def verify_dataset(
         logger.error(f"Dataset in {dir_path} contains 0 rows.")
         return False
 
+    # Display schema to console
     print("\n--- Schema ---")
     df.printSchema()
 
@@ -159,20 +189,22 @@ def verify_dataset(
         logger.error(f"Missing required columns in {stream_name}: {missing_cols}")
         return False
 
-    # Check prohibited columns
+    # Check prohibited columns (guaranteeing no fabricated synthetic fields)
     fabricated_cols = [c for c in rules.get("prohibited_cols", []) if c in actual_cols]
     if fabricated_cols:
         logger.error(f"Prohibited/fabricated columns detected in {stream_name}: {fabricated_cols}")
         return False
 
+    # Show first 5 records as a sample preview
     print("\n--- Sample Records (First 5) ---")
     df.show(5, truncate=False)
 
-    # 1. Zone distribution
+    # Check zone distribution
     distinct_zones = [r["zone_id"] for r in df.select("zone_id").distinct().collect()]
     print(f"[*] Distinct zones represented ({len(distinct_zones)}): {distinct_zones}")
 
-    # 2. Window boundary validation (must be exactly 5 minutes = 300 seconds)
+    # Window boundary validation:
+    # Tumbling windows must span exactly 5 minutes (300 seconds) between start and end
     df_window_sec = df.withColumn(
         "window_duration_sec",
         unix_timestamp("window_end") - unix_timestamp("window_start"),
@@ -183,7 +215,7 @@ def verify_dataset(
         return False
     print("[*] 5-minute tumbling window duration check: PASS (All windows = 300s)")
 
-    # 3. Check window range
+    # Display temporal range
     time_summary = df.selectExpr(
         "min(window_start) as earliest_window",
         "max(window_end) as latest_window",
@@ -191,7 +223,8 @@ def verify_dataset(
     print(f"[*] Earliest window: {time_summary['earliest_window']}")
     print(f"[*] Latest window:   {time_summary['latest_window']}")
 
-    # 4. Duplicate feature key check (window_start, zone_id)
+    # Duplicate feature key check:
+    # Within each dataset, the composite key (window_start, zone_id) must be strictly unique
     key_dupes = (
         df.groupBy("window_start", "zone_id")
         .count()
@@ -203,7 +236,7 @@ def verify_dataset(
         return False
     print("[*] Unique feature key check (window_start, zone_id): PASS (Zero duplicates)")
 
-    # 5. Zone join check: verify zone_name is populated
+    # Static zone join check: verify relational enrichment from grid_zones.csv
     unmatched_zones = df.filter(col("zone_name").isNull()).count()
     if unmatched_zones > 0:
         logger.warning(f"Detected {unmatched_zones} rows with unmatched/null zone_name in {stream_name}!")
@@ -215,6 +248,12 @@ def verify_dataset(
 
 
 def main():
+    """
+    Main verification runner CLI.
+    Initializes a local SparkSession, evaluates all 3 streaming feature tables,
+    and reports exit status 0 (success) or 1 (failure).
+    """
+    # Resolve repository root and default data/feature_table path
     repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
     feature_root = os.path.join(repo_root, "data", "feature_table")
 
@@ -226,10 +265,12 @@ def main():
     )
     args = parser.parse_args()
 
+    # Ensure PySpark is available
     if SparkSession is None:
         logger.error("PySpark is not installed in the active environment. Cannot run verification.")
         sys.exit(1)
 
+    # Initialize lightweight local SparkSession
     spark = (
         SparkSession.builder.appName("Urbanix-FeatureVerification")
         .config("spark.sql.session.timeZone", "UTC")
@@ -238,6 +279,7 @@ def main():
     )
     spark.sparkContext.setLogLevel("ERROR")
 
+    # Define paths to the three feature datasets
     datasets = {
         "traffic": os.path.join(args.feature_root, "traffic"),
         "aqi": os.path.join(args.feature_root, "aqi"),
@@ -247,6 +289,7 @@ def main():
     all_passed = True
     results = {}
 
+    # Verify each dataset sequentially
     for name, path in datasets.items():
         rules = EXPECTED_SCHEMAS[name]
         passed = verify_dataset(spark, name, path, rules)
@@ -254,8 +297,10 @@ def main():
         if not passed:
             all_passed = False
 
+    # Clean up SparkSession
     spark.stop()
 
+    # Print final summary table
     print("\n" + "=" * 70)
     print("FINAL VERIFICATION SUMMARY")
     print("=" * 70)
@@ -263,6 +308,7 @@ def main():
         status_str = "PASS" if res else "FAIL"
         print(f"  {name.upper().ljust(10)}: [{status_str}]")
 
+    # Exit with appropriate status code
     if all_passed:
         print("\nAll feature tables verified successfully.")
         sys.exit(0)
@@ -271,5 +317,6 @@ def main():
         sys.exit(1)
 
 
+# Standard Python CLI entry point
 if __name__ == "__main__":
     main()

@@ -1,53 +1,76 @@
 #!/usr/bin/env python3
-"""
-Urbanix — Day 3 Spark Structured Streaming Job
-Processes real-time IoT telemetry from three independent Kafka topics:
-  - traffic-topic  -> 5-min tumbling window -> data/feature_table/traffic/
-  - aqi-topic      -> 5-min tumbling window -> data/feature_table/aqi/
-  - weather-topic  -> 5-min tumbling window -> data/feature_table/weather/
+# ==============================================================================
+# Urbanix — Day 3 & Day 6 Spark Structured Streaming Production Job
+# ==============================================================================
+# Processes real-time IoT telemetry from three independent Kafka topics:
+#   - traffic-topic  -> 5-min tumbling window -> data/feature_table/traffic/
+#   - aqi-topic      -> 5-min tumbling window -> data/feature_table/aqi/
+#   - weather-topic  -> 5-min tumbling window -> data/feature_table/weather/
+#
+# Educational Guide for Beginners:
+# --------------------------------
+# What is Apache Spark Structured Streaming?
+# Structured Streaming is a scalable and fault-tolerant stream processing engine built
+# on the Spark SQL engine. It allows developers to express streaming computations
+# the same way they would express batch computations on static DataFrames.
+#
+# Key Architectural Concepts in this Job:
+# 1. Three Independent Streams:
+#    In real-world data engineering, different sensors publish data at different rates
+#    and time periods (e.g., METR-LA traffic from March 2012 vs EPA AQI data). Attempting
+#    an inner-join between raw streams with disjoint calendar times would drop 100% of rows!
+#    Instead, Urbanix ingests and windows each stream independently into its own feature sink.
+# 2. Event-Time Watermarking (withWatermark):
+#    Network packets and edge sensors can experience latency or arrive out of order.
+#    A "watermark" is a threshold that tells Spark: "Only wait up to 2 minutes for late-arriving
+#    data. Any data older than (max_event_time - 2 minutes) will be safely discarded."
+# 3. 5-Minute Tumbling Windows:
+#    A tumbling window is a non-overlapping, fixed-duration time bucket (e.g., 07:00-07:05,
+#    07:05-07:10). All sensor readings falling into that bucket are aggregated together.
+# 4. Static-to-Stream Join:
+#    Each micro-batch of windowed aggregates is enriched with static geographic metadata
+#    from 'data/grid_zones.csv' (latitude, longitude, zone name).
+# 5. MLlib Model Scoring via foreachBatch:
+#    Machine Learning algorithms (like LinearRegressionModel) require static DataFrames.
+#    Structured Streaming's 'foreachBatch' mechanism passes each materialized micro-batch
+#    to a custom scoring function that adds predicted traffic speed before saving to Parquet.
+# ==============================================================================
 
-Key Architectural Principles:
-1. Three Independent Streams:
-   Preserves valid observations independently across streams. No forced inner join
-   across streams with disjoint historical calendar ranges (March vs October 2012).
-2. Event-Time Watermarking:
-   Uses genuine event-time timestamps from sensor payloads with a 2-minute watermark
-   and 5-minute tumbling windows in Append output mode.
-3. Static Zone Metadata Join:
-   Relational enrichment with data/grid_zones.csv without multiplying observations.
-4. Separate Checkpoints:
-   Independent checkpoint directories for each query under infra/checkpoints/.
-5. Honest Schema Semantics:
-   No fabricated fields (no synthetic vehicle_count, no artificial co2).
-"""
+# Standard Python system and operating system libraries
+import os          # Operating system environment variables and file paths
+import sys         # Python runtime information and sys.path manipulation
+import logging     # Formatted logging output for monitoring streaming progress
+import argparse    # Command-line interface argument parsing
+import signal      # POSIX and Windows process signal handlers (SIGINT, SIGTERM)
+from typing import Dict, Any, Optional  # Type annotations for code clarity
 
-import os
-import sys
-import logging
-import argparse
-import signal
-from typing import Dict, Any, Optional
-
-# Ensure worker python matches driver python runtime
+# ------------------------------------------------------------------------------
+# PySpark Environment Configuration
+# ------------------------------------------------------------------------------
+# In distributed environments and Windows local installations, worker processes
+# need to run the exact same Python binary as the driver to avoid serialization errors.
 os.environ.setdefault("PYSPARK_PYTHON", sys.executable)
 os.environ.setdefault("PYSPARK_DRIVER_PYTHON", sys.executable)
 
+# PySpark SQL imports: core engine, DataFrames, and functional expressions
 from pyspark.sql import SparkSession, DataFrame
 from pyspark.sql.functions import (
-    col,
-    from_json,
-    to_timestamp,
-    window,
-    count,
-    avg,
-    min as spark_min,
-    max as spark_max,
-    round as spark_round,
-    when,
-    lit,
+    col,           # References a column by string name
+    from_json,     # Decodes raw JSON text strings into structured Spark rows
+    to_timestamp,  # Parses raw timestamp strings into Spark SQL TimestampType
+    window,        # Generates tumbling or sliding time windows on event_time
+    count,         # Aggregation: counts non-null rows in each window
+    avg,           # Aggregation: computes arithmetic average
+    min as spark_min,  # Aggregation: finds the minimum value in each window
+    max as spark_max,  # Aggregation: finds the maximum value in each window
+    round as spark_round,  # Rounds numeric values to specified decimal precision
+    when,          # Conditional SQL CASE/WHEN branching
+    lit,           # Injects literal constant values into columns
 )
 
-# Relative or package import for schemas and inference engine
+# Relative or package import for schemas and inference engine:
+# Depending on how the script is invoked (from root or from within services/streaming),
+# we attempt local relative import first, falling back to absolute package import.
 try:
     from schemas import (
         TRAFFIC_SCHEMA,
@@ -79,6 +102,7 @@ except ImportError:
         predict_traffic_speed,
     )
 
+# Configure structured logging format
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] [Urbanix-Streaming] %(message)s",
@@ -95,25 +119,30 @@ def build_spark_session(
     Initializes and configures the SparkSession for Structured Streaming with Kafka.
     Defaults to Scala 2.13 Kafka connector matching host Spark 3.5.1 installation.
     """
+    # If no custom Kafka connector maven coordinate was provided, default to Spark 3.5.1 connector
     if kafka_package is None:
         kafka_package = os.environ.get(
             "SPARK_KAFKA_PACKAGE",
             "org.apache.spark:spark-sql-kafka-0-10_2.13:3.5.1",
         )
 
+    # Initialize the SparkSession builder with UTC timezone and optimized shuffle partition count
     builder = (
         SparkSession.builder.appName(app_name)
         .config("spark.sql.session.timeZone", DEFAULT_TIMEZONE)
-        .config("spark.sql.shuffle.partitions", "4")
-        .config("spark.jars.packages", kafka_package)
+        .config("spark.sql.shuffle.partitions", "4")  # Optimize shuffle partitions for local dev/testing
+        .config("spark.jars.packages", kafka_package)  # Automatically download and include Kafka connector jar
     )
 
+    # Configure master URL if explicitly provided or found in environment
     if master:
         builder = builder.master(master)
     elif "SPARK_MASTER_URL" in os.environ:
         builder = builder.master(os.environ["SPARK_MASTER_URL"])
 
+    # Create or retrieve existing SparkSession
     spark = builder.getOrCreate()
+    # Suppress verbose internal Spark info messages to keep logs actionable
     spark.sparkContext.setLogLevel("WARN")
     logger.info(f"Initialized SparkSession: version={spark.version}, appName={app_name}")
     return spark
@@ -124,15 +153,18 @@ def load_grid_zones(spark: SparkSession, zones_path: str) -> DataFrame:
     Loads and validates the static grid zone metadata table.
     Enforces uniqueness on zone_id to ensure relational joins do not multiply observations.
     """
+    # Verify the CSV file exists on disk
     if not os.path.exists(zones_path):
         raise FileNotFoundError(f"Static grid zones file not found: {zones_path}")
 
+    # Read the CSV file enforcing the strict grid zones schema
     zones_df = (
         spark.read.option("header", "true")
         .schema(GRID_ZONES_SCHEMA)
         .csv(zones_path)
     )
 
+    # Verify primary key uniqueness to protect against fan-out join multiplication bugs
     total_count = zones_df.count()
     distinct_count = zones_df.select("zone_id").distinct().count()
 
@@ -154,14 +186,21 @@ def read_kafka_stream(
 ) -> DataFrame:
     """
     Reads a raw streaming DataFrame from Kafka with source metadata.
+    
+    Parameters:
+      spark: Active SparkSession
+      bootstrap_servers: Host and port of the Kafka cluster (e.g. 'localhost:9092')
+      topic: Name of the Kafka topic to subscribe to
+      starting_offsets: Offset strategy ('latest' for real-time, 'earliest' for historical backfill)
     """
     logger.info(f"Connecting to Kafka stream: topic='{topic}', bootstrap='{bootstrap_servers}', offsets='{starting_offsets}'")
+    # Spark Structured Streaming Kafka source connector
     raw_stream = (
         spark.readStream.format("kafka")
         .option("kafka.bootstrap.servers", bootstrap_servers)
         .option("subscribe", topic)
         .option("startingOffsets", starting_offsets)
-        .option("failOnDataLoss", "false")
+        .option("failOnDataLoss", "false")  # Prevent crash if topic partitions are rebalanced or trimmed
         .load()
     )
     return raw_stream
@@ -177,6 +216,7 @@ def parse_and_validate_traffic(raw_stream: DataFrame) -> DataFrame:
     and converts timestamps to event_time.
     Physical rule: 0.0 < speed_kmph <= 250.0 (filters sensor blackouts and unphysical spikes).
     """
+    # Kafka messages have binary key, value, and timestamp; we cast to string and parse JSON
     parsed = (
         raw_stream.selectExpr(
             "CAST(key AS STRING) as kafka_key",
@@ -196,13 +236,13 @@ def parse_and_validate_traffic(raw_stream: DataFrame) -> DataFrame:
         )
     )
 
-    # Filter malformed records and enforce physical validity
+    # Filter out corrupted payloads and enforce strict physical velocity boundaries
     valid_stream = parsed.filter(
         col("event_time").isNotNull()
         & col("zone_id").isNotNull()
         & col("speed_kmph").isNotNull()
-        & (col("speed_kmph") > 0.0)
-        & (col("speed_kmph") <= 250.0)
+        & (col("speed_kmph") > 0.0)      # Eliminate 0 or negative velocities (blackout / sensor error)
+        & (col("speed_kmph") <= 250.0)  # Eliminate impossible urban velocities > 250 km/h
     )
     return valid_stream
 
@@ -213,6 +253,7 @@ def parse_and_validate_aqi(raw_stream: DataFrame) -> DataFrame:
     and converts timestamps to event_time.
     Physical rule: 0.0 <= pm25 <= 1000.0 (EPA bounds).
     """
+    # Parse Kafka message value into typed AQI columns
     parsed = (
         raw_stream.selectExpr(
             "CAST(key AS STRING) as kafka_key",
@@ -234,12 +275,13 @@ def parse_and_validate_aqi(raw_stream: DataFrame) -> DataFrame:
         )
     )
 
+    # Validate against EPA environmental sensor bounds for PM2.5
     valid_stream = parsed.filter(
         col("event_time").isNotNull()
         & col("zone_id").isNotNull()
         & col("pm25").isNotNull()
-        & (col("pm25") >= 0.0)
-        & (col("pm25") <= 1000.0)
+        & (col("pm25") >= 0.0)      # Particulate matter concentration cannot be negative
+        & (col("pm25") <= 1000.0)   # Values above 1000 ug/m3 represent sensor malfunction
     )
     return valid_stream
 
@@ -250,6 +292,7 @@ def parse_and_validate_weather(raw_stream: DataFrame) -> DataFrame:
     and converts timestamps to event_time.
     Physical rule: -50.0 <= temperature_c <= 60.0 and 0.0 <= humidity_pct <= 100.0.
     """
+    # Parse Kafka weather JSON payload
     parsed = (
         raw_stream.selectExpr(
             "CAST(key AS STRING) as kafka_key",
@@ -271,15 +314,16 @@ def parse_and_validate_weather(raw_stream: DataFrame) -> DataFrame:
         )
     )
 
+    # Validate against terrestrial climatic temperature and relative humidity bounds
     valid_stream = parsed.filter(
         col("event_time").isNotNull()
         & col("zone_id").isNotNull()
         & col("temperature_c").isNotNull()
-        & (col("temperature_c") >= -50.0)
-        & (col("temperature_c") <= 60.0)
+        & (col("temperature_c") >= -50.0)  # Filter temperatures colder than -50 C
+        & (col("temperature_c") <= 60.0)   # Filter temperatures hotter than +60 C
         & col("humidity_pct").isNotNull()
-        & (col("humidity_pct") >= 0.0)
-        & (col("humidity_pct") <= 100.0)
+        & (col("humidity_pct") >= 0.0)     # Humidity percentage lower bound
+        & (col("humidity_pct") <= 100.0)   # Humidity percentage upper bound
     )
     return valid_stream
 
@@ -300,8 +344,10 @@ def aggregate_traffic(
       - traffic_record_count: total valid sensor readings in window
       - avg_speed_kmph, min_speed_kmph, max_speed_kmph
     """
+    # Apply watermark threshold on event_time to limit state buffer size
     watermarked = traffic_stream.withWatermark("event_time", watermark_delay)
 
+    # Group by tumbling window and zone identifier
     aggregated = (
         watermarked.groupBy(
             window(col("event_time"), window_duration),
@@ -324,7 +370,7 @@ def aggregate_traffic(
         )
     )
 
-    # Relational join with static zone metadata
+    # Relational join with static zone metadata table (lat, lon, zone_name)
     enriched = aggregated.join(grid_zones, on="zone_id", how="left")
     return enriched
 
@@ -341,8 +387,10 @@ def aggregate_aqi(
       - aqi_record_count: total valid PM2.5 observations in window
       - avg_pm25, min_pm25, max_pm25, avg_aqi
     """
+    # Apply 2-minute watermark on air quality readings
     watermarked = aqi_stream.withWatermark("event_time", watermark_delay)
 
+    # Group by 5-minute tumbling window and zone
     aggregated = (
         watermarked.groupBy(
             window(col("event_time"), window_duration),
@@ -367,6 +415,7 @@ def aggregate_aqi(
         )
     )
 
+    # Enrich with static geographic details
     enriched = aggregated.join(grid_zones, on="zone_id", how="left")
     return enriched
 
@@ -383,8 +432,10 @@ def aggregate_weather(
       - weather_record_count: total valid meteorological observations in window
       - avg_temperature_c, min_temperature_c, max_temperature_c, avg_humidity_pct
     """
+    # Apply watermark to manage state store eviction for weather readings
     watermarked = weather_stream.withWatermark("event_time", watermark_delay)
 
+    # Aggregate meteorological metrics over 5-minute intervals
     aggregated = (
         watermarked.groupBy(
             window(col("event_time"), window_duration),
@@ -409,6 +460,7 @@ def aggregate_weather(
         )
     )
 
+    # Enrich with static zone metadata
     enriched = aggregated.join(grid_zones, on="zone_id", how="left")
     return enriched
 
@@ -429,6 +481,7 @@ def start_parquet_query(
     Starts a Structured Streaming query writing windowed aggregates to a Parquet directory
     in Append mode with an independent checkpoint directory.
     """
+    # Ensure physical destination directories exist on disk
     os.makedirs(output_path, exist_ok=True)
     os.makedirs(checkpoint_path, exist_ok=True)
 
@@ -437,14 +490,16 @@ def start_parquet_query(
         f"trigger={'availableNow' if available_now else trigger_interval}"
     )
 
+    # Configure the streaming writer
     writer = (
         df.writeStream.queryName(query_name)
         .format("parquet")
-        .outputMode("append")
-        .option("path", output_path)
-        .option("checkpointLocation", checkpoint_path)
+        .outputMode("append")                            # Append finalized window records only
+        .option("path", output_path)                     # Parquet storage root
+        .option("checkpointLocation", checkpoint_path)   # Independent checkpoint directory for WAL
     )
 
+    # Start the streaming query based on trigger mode
     if available_now:
         query = writer.trigger(availableNow=True).start()
     else:
@@ -487,6 +542,7 @@ def start_traffic_inference_query(
        restarting the query with the identical checkpointLocation ensures that processing
        resumes exactly from the last committed offset, avoiding unhandled data loss.
     """
+    # Ensure destination output and checkpoint directories exist
     os.makedirs(output_path, exist_ok=True)
     os.makedirs(checkpoint_path, exist_ok=True)
 
@@ -495,14 +551,17 @@ def start_traffic_inference_query(
         f"checkpoint='{checkpoint_path}', trigger={'availableNow' if available_now else trigger_interval}"
     )
 
+    # Build the closure function that accepts (batch_df, batch_id)
     batch_processor = make_traffic_batch_processor(model, output_path)
 
+    # Configure streaming writer to route micro-batches to the batch processor callback
     writer = (
         df.writeStream.queryName(query_name)
         .foreachBatch(batch_processor)
         .option("checkpointLocation", checkpoint_path)
     )
 
+    # Start the streaming execution
     if available_now:
         query = writer.trigger(availableNow=True).start()
     else:
@@ -535,10 +594,12 @@ def run_pipeline(
     validation, windowing, watermarking, zone joining, loads the MLlib model once,
     and starts 3 streaming queries (traffic with live inference, aqi, and weather).
     """
+    # Step 1: Initialize SparkSession with Kafka packages and configurations
     spark = build_spark_session(master=spark_master, kafka_package=kafka_package)
+    # Step 2: Load static grid zones CSV for spatial enrichment
     grid_zones = load_grid_zones(spark, zones_path)
 
-    # Load MLlib forecasting model ONCE at job startup (outside micro-batch loop)
+    # Step 3: Load MLlib forecasting model ONCE at job startup (outside micro-batch loop)
     forecasting_model = None
     if enable_inference:
         if not model_path:
@@ -571,22 +632,22 @@ def run_pipeline(
             "Running standard feature aggregation only."
         )
 
-    # 1. Traffic Pipeline
+    # Step 4: Build Traffic Pipeline (read -> parse -> window -> enrich)
     raw_traffic = read_kafka_stream(spark, bootstrap_servers, traffic_topic, starting_offsets)
     valid_traffic = parse_and_validate_traffic(raw_traffic)
     traffic_features = aggregate_traffic(valid_traffic, grid_zones, window_duration, watermark_delay)
 
-    # 2. AQI Pipeline (PM2.5 forecasting deferred - no valid Day 5 model artifact exists)
+    # Step 5: Build AQI Pipeline
     raw_aqi = read_kafka_stream(spark, bootstrap_servers, aqi_topic, starting_offsets)
     valid_aqi = parse_and_validate_aqi(raw_aqi)
     aqi_features = aggregate_aqi(valid_aqi, grid_zones, window_duration, watermark_delay)
 
-    # 3. Weather Pipeline
+    # Step 6: Build Weather Pipeline
     raw_weather = read_kafka_stream(spark, bootstrap_servers, weather_topic, starting_offsets)
     valid_weather = parse_and_validate_weather(raw_weather)
     weather_features = aggregate_weather(valid_weather, grid_zones, window_duration, watermark_delay)
 
-    # Start 3 Independent Streaming Queries
+    # Step 7: Launch 3 Independent Streaming Queries with Dedicated Checkpoint Directories
     if forecasting_model is not None:
         traffic_query = start_traffic_inference_query(
             traffic_features,
@@ -627,6 +688,7 @@ def run_pipeline(
 
     active_queries = [traffic_query, aqi_query, weather_query]
 
+    # Step 8: Register Graceful Shutdown Handler for OS Signals
     def handle_shutdown(signum, frame):
         logger.info(f"Received shutdown signal ({signum}). Stopping active streaming queries...")
         for q in active_queries:
@@ -640,11 +702,13 @@ def run_pipeline(
         logger.info("Spark session stopped. Exiting cleanly.")
         sys.exit(0)
 
+    # Bind interrupt (Ctrl+C) and termination signals to the graceful shutdown handler
     signal.signal(signal.SIGINT, handle_shutdown)
     signal.signal(signal.SIGTERM, handle_shutdown)
 
     logger.info("All 3 Urbanix streaming queries successfully started!")
 
+    # If requested, block main thread until streaming queries terminate
     if await_termination:
         logger.info("Awaiting termination of streaming queries...")
         for q in active_queries:
@@ -654,6 +718,10 @@ def run_pipeline(
 
 
 def main():
+    """
+    Command-line interface entry point for launching the Urbanix Streaming Job.
+    Parses CLI flags for Kafka brokers, topics, time windows, and model configurations.
+    """
     repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 
     parser = argparse.ArgumentParser(description="Urbanix Day 3 Spark Structured Streaming Job")
@@ -714,6 +782,7 @@ def main():
 
     args = parser.parse_args()
 
+    # Invoke pipeline orchestration with parsed arguments
     run_pipeline(
         bootstrap_servers=args.bootstrap_servers,
         traffic_topic=args.traffic_topic,
@@ -735,5 +804,6 @@ def main():
     )
 
 
+# Standard Python module guard
 if __name__ == "__main__":
     main()

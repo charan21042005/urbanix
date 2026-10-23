@@ -20,48 +20,76 @@ Key Engineering Rules:
      are strictly excluded so no training sample predicts a test-period label.
 6. Persistence: Saves partitioned Parquet datasets to data/train/ and data/test/,
    alongside a versioned metadata summary (data/split_metadata.json).
+
+BEGINNER'S GUIDE:
+In supervised machine learning, models learn to predict a target label Y from input features X.
+When predicting traffic, we want to know what speed will be in the NEXT 5 minutes (at time t+1).
+We use Spark's `lead()` function over a time window to grab the next observation.
+To prevent the model from 'cheating' during testing:
+- Target is strictly kept separate from features.
+- All training data happens in the chronological past.
+- The boundary between past and future is quarantined so no samples bridge across.
 """
 
-import os
-import sys
-import json
-import argparse
-from datetime import datetime, timezone
-from pathlib import Path
+# --- Standard Library Imports ---
+import os        # File system path and directory existence management
+import sys       # System parameters and runtime interpreter path
+import json      # JSON encoding and decoding for split metadata export
+import argparse  # Command-line interface parsing
+from datetime import datetime, timezone  # Datetime manipulation and UTC timezone handling
+from pathlib import Path  # Object-oriented path navigation
 
 # Explicitly bind Python executable for PySpark worker subprocesses on Windows
 os.environ["PYSPARK_PYTHON"] = sys.executable
 os.environ["PYSPARK_DRIVER_PYTHON"] = sys.executable
 
+# --- Apache PySpark SQL Core & Window Functions ---
 from pyspark.sql import SparkSession
+# Window allows calculating values across groups of rows (partitionBy) with specific ordering (orderBy)
 from pyspark.sql.window import Window
 from pyspark.sql.functions import (
-    col,
-    lead,
-    lag,
-    hour,
-    minute,
-    sin,
-    cos,
-    lit,
-    pi,
-    unix_timestamp,
-    min as spark_min,
-    max as spark_max,
-    count as spark_count,
-    when,
-    date_format,
+    col,             # References a DataFrame column by name
+    lead,            # Accesses a following row's value within a window partition
+    lag,             # Accesses a preceding row's value within a window partition
+    hour,            # Extracts the hour component (0-23) from a timestamp
+    minute,          # Extracts the minute component (0-59) from a timestamp
+    sin,             # Computes mathematical sine (used for cyclic time encoding)
+    cos,             # Computes mathematical cosine (used for cyclic time encoding)
+    lit,             # Creates a literal constant column value
+    pi,              # Mathematical constant Pi (3.14159...)
+    unix_timestamp,  # Converts timestamp to epoch seconds (integer)
+    min as spark_min,# Computes minimum across a column
+    max as spark_max,# Computes maximum across a column
+    count as spark_count, # Counts rows
+    when,            # SQL CASE/WHEN conditional expression builder
+    date_format,     # Formats dates to standard string representations
 )
+
+# --- Apache PySpark MLlib Feature Transformers ---
+# VectorAssembler bundles individual numeric columns into a single vector required by MLlib models
+# StringIndexer encodes categorical string labels (like zone_id) into numeric indices (0.0, 1.0, ...)
 from pyspark.ml.feature import VectorAssembler, StringIndexer
 
 
 def get_spark_session(app_name: str = "UrbanixPrepareTrainingData") -> SparkSession:
-    """Builds a local SparkSession configured for deterministic UTC execution."""
+    """
+    Builds a local SparkSession configured for deterministic UTC execution.
+
+    Parameters:
+        app_name (str): Spark application name displayed in logs.
+
+    Returns:
+        SparkSession: Configured active session instance.
+    """
     return (
         SparkSession.builder.appName(app_name)
+        # Allocate 2 local worker CPU threads
         .master("local[2]")
+        # Standardize internal time zone to UTC
         .config("spark.sql.session.timeZone", "UTC")
+        # Allocate 2GB memory for driver process
         .config("spark.driver.memory", "2g")
+        # Disable web UI server to eliminate port conflicts
         .config("spark.ui.enabled", "false")
         .getOrCreate()
     )
@@ -88,7 +116,19 @@ def prepare_forecasting_dataset(
     """
     Executes the full Day 4 feature engineering, chronological split,
     and Parquet persistence pipeline.
+
+    Parameters:
+        spark (SparkSession): Active local SparkSession instance.
+        input_path (str): Path to Day 3 windowed traffic feature table Parquet directory.
+        train_output_path (str): Destination folder for the 80% training partition.
+        test_output_path (str): Destination folder for the 20% testing partition.
+        metadata_output_path (str): Destination path for JSON summary metadata.
+        train_ratio (float): Chronological training split fraction (default: 0.8 = 80%).
+
+    Returns:
+        dict: Populated metadata dictionary summarizing the prepared split.
     """
+    # Print pipeline banner and parameters
     print(f"\n" + "=" * 70)
     print("URBANIX DAY 4: FEATURE ENGINEERING & CHRONOLOGICAL SPLIT PIPELINE")
     print("=" * 70)
@@ -101,13 +141,16 @@ def prepare_forecasting_dataset(
     # -------------------------------------------------------------------------
     # STAGE 1: INGESTION & DATA AUDIT
     # -------------------------------------------------------------------------
+    # Guard clause: verify input directory exists
     if not os.path.exists(input_path):
         raise DataQualityError(f"Input path does not exist: {input_path}")
 
+    # Read the streaming traffic feature table from Parquet
     raw_df = spark.read.parquet(input_path)
     total_raw_rows = raw_df.count()
     print(f"[*] Raw feature table row count: {total_raw_rows}")
 
+    # Reject empty feature tables
     if total_raw_rows == 0:
         raise InsufficientCoverageError(
             f"Input table at {input_path} is completely empty. Cannot prepare training data."
@@ -123,18 +166,19 @@ def prepare_forecasting_dataset(
         "max_speed_kmph",
         "traffic_record_count",
     ]
+    # Check that all mandatory columns are present
     missing_cols = [c for c in required_cols if c not in raw_df.columns]
     if missing_cols:
         raise DataQualityError(f"Missing mandatory columns in input table: {missing_cols}")
 
-    # Check for duplicate feature keys (window_start, zone_id)
+    # Check for duplicate feature keys: (window_start, zone_id) must be strictly unique
     distinct_keys = raw_df.select("window_start", "zone_id").distinct().count()
     if distinct_keys != total_raw_rows:
         raise DataQualityError(
             f"Duplicate feature keys detected! Distinct: {distinct_keys}, Total: {total_raw_rows}"
         )
 
-    # Filter out any non-finite or negative speeds
+    # Filter out any non-finite or unphysical speeds (must be between 0 and 250 km/h)
     clean_df = raw_df.filter(
         col("avg_speed_kmph").isNotNull()
         & (col("avg_speed_kmph") > 0.0)
@@ -145,15 +189,17 @@ def prepare_forecasting_dataset(
     # STAGE 2: FUTURE-LABEL CONSTRUCTION (ZERO LEAKAGE)
     # -------------------------------------------------------------------------
     # We partition by 'zone_id' and order by 'window_start'.
-    # lead('avg_speed_kmph', 1) retrieves the next window's speed for the same zone.
+    # lead('avg_speed_kmph', 1) retrieves the next window's speed for the identical zone.
     # We also retrieve lead('window_start', 1) to verify interval continuity.
     zone_time_window = Window.partitionBy("zone_id").orderBy("window_start")
 
+    # Add candidate future lead columns
     labeled_candidates = (
         clean_df
         .withColumn("lead_speed", lead("avg_speed_kmph", 1).over(zone_time_window))
         .withColumn("lead_window_start", lead("window_start", 1).over(zone_time_window))
         .withColumn(
+            # Calculate time difference in seconds between current and lead window
             "delta_seconds",
             unix_timestamp("lead_window_start") - unix_timestamp("window_start"),
         )
@@ -179,6 +225,7 @@ def prepare_forecasting_dataset(
     eligible_count = supervised_df.count()
     print(f"[*] Valid labeled examples after continuity filtering: {eligible_count}")
 
+    # Ensure we have enough data to train and test
     if eligible_count < 2:
         raise InsufficientCoverageError(
             f"Eligible supervised examples ({eligible_count}) is insufficient for train/test splitting. "
@@ -195,7 +242,7 @@ def prepare_forecasting_dataset(
     # 4. speed_spread_kmph: max - min speed (traffic volatility / burstiness)
     # 5. traffic_record_count: Number of loop detector readings in window (density proxy)
     # 6. hour_of_day: 0-23 derived from current window_start
-    # 7. sin_hour, cos_hour: Cyclic time-of-day encoding
+    # 7. sin_hour, cos_hour: Cyclic time-of-day encoding (preserves 23:59 -> 00:00 continuity)
     featured_df = (
         supervised_df
         .withColumn(
@@ -205,10 +252,12 @@ def prepare_forecasting_dataset(
         .withColumn("hour_of_day", hour(col("window_start")))
         .withColumn("minute_of_hour", minute(col("window_start")))
         .withColumn(
+            # sin(2 * pi * hour / 24) encodes cyclical 24-hour daily rhythm
             "sin_hour",
             sin(lit(2.0) * pi() * col("hour_of_day") / lit(24.0)),
         )
         .withColumn(
+            # cos(2 * pi * hour / 24) provides orthogonal coordinate for time-of-day
             "cos_hour",
             cos(lit(2.0) * pi() * col("hour_of_day") / lit(24.0)),
         )
@@ -228,12 +277,14 @@ def prepare_forecasting_dataset(
     t_min_epoch = time_bounds["t_min_epoch"]
     t_max_epoch = time_bounds["t_max_epoch"]
 
+    # Reject degenerate single-timestamp data
     if t_min_epoch is None or t_max_epoch is None or t_min_epoch == t_max_epoch:
         raise InsufficientCoverageError(
             f"All eligible records share identical timestamp ({time_bounds['t_min_ts_utc']}). "
             "Cannot perform chronological split."
         )
 
+    # Linear interpolation at train_ratio (default: 80% mark on the timeline)
     cutoff_epoch = t_min_epoch + train_ratio * (t_max_epoch - t_min_epoch)
     cutoff_dt = datetime.fromtimestamp(cutoff_epoch, tz=timezone.utc)
     cutoff_str = cutoff_dt.strftime("%Y-%m-%d %H:%M:%S")
@@ -250,7 +301,7 @@ def prepare_forecasting_dataset(
     raw_train = featured_df.filter(unix_timestamp(col("target_window_start")) <= cutoff_epoch)
     raw_test = featured_df.filter(unix_timestamp(col("window_start")) > cutoff_epoch)
 
-    # Boundary-crossing examples count
+    # Count boundary-crossing samples that bridge across past and future
     boundary_excluded = featured_df.filter(
         (unix_timestamp(col("window_start")) <= cutoff_epoch)
         & (unix_timestamp(col("target_window_start")) > cutoff_epoch)
@@ -263,6 +314,7 @@ def prepare_forecasting_dataset(
     print(f"[*] Training candidate rows             : {train_count}")
     print(f"[*] Testing candidate rows              : {test_count}")
 
+    # Ensure neither partition ended up empty
     if train_count == 0 or test_count == 0:
         raise InsufficientCoverageError(
             f"Chronological split produced an empty partition! Train: {train_count}, Test: {test_count}. "
@@ -279,13 +331,16 @@ def prepare_forecasting_dataset(
         outputCol="zone_index",
         handleInvalid="keep",  # Gracefully handles unseen categories in test set
     )
+    # Fit the indexer exclusively on training data
     indexer_model = zone_indexer.fit(raw_train)
+    # Apply indexer to both partitions
     indexed_train = indexer_model.transform(raw_train)
     indexed_test = indexer_model.transform(raw_test)
 
     # -------------------------------------------------------------------------
     # STAGE 7: VECTORASSEMBLER (ML-READY FEATURE VECTOR)
     # -------------------------------------------------------------------------
+    # Define the 9 input feature columns
     feature_cols = [
         "avg_speed_kmph",
         "min_speed_kmph",
@@ -302,12 +357,14 @@ def prepare_forecasting_dataset(
     # Strictly assert that the target is NOT among input feature columns
     assert target_col not in feature_cols, f"CRITICAL LEAKAGE: target {target_col} in feature_cols!"
 
+    # Instantiate VectorAssembler to bundle features into 'features' VectorUDT
     assembler = VectorAssembler(
         inputCols=feature_cols,
         outputCol="features",
         handleInvalid="error",  # Fail immediately on unexpected nulls
     )
 
+    # Transform both splits into MLlib-ready feature vectors
     assembled_train = assembler.transform(indexed_train)
     assembled_test = assembler.transform(indexed_test)
 
@@ -327,6 +384,7 @@ def prepare_forecasting_dataset(
     # -------------------------------------------------------------------------
     # STAGE 8: PRE-WRITE LEAKAGE & INTEGRITY ASSERTIONS
     # -------------------------------------------------------------------------
+    # Extract boundary timestamp statistics for both partitions
     train_time_stats = final_train.selectExpr(
         "min(unix_timestamp(window_start)) as min_feat_epoch",
         "max(unix_timestamp(target_window_start)) as max_target_epoch",
@@ -368,12 +426,15 @@ def prepare_forecasting_dataset(
     # -------------------------------------------------------------------------
     # STAGE 9: PARQUET PERSISTENCE & METADATA EXPORT
     # -------------------------------------------------------------------------
+    # Ensure destination directories exist
     Path(train_output_path).mkdir(parents=True, exist_ok=True)
     Path(test_output_path).mkdir(parents=True, exist_ok=True)
 
+    # Persist training and testing partitions using overwrite mode
     final_train.write.mode("overwrite").parquet(train_output_path)
     final_test.write.mode("overwrite").parquet(test_output_path)
 
+    # Assemble comprehensive metadata record
     metadata = {
         "status": "PASS",
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
@@ -400,6 +461,7 @@ def prepare_forecasting_dataset(
         "target_timestamp_column": "target_window_start",
     }
 
+    # Save metadata JSON file
     with open(metadata_output_path, "w", encoding="utf-8") as f:
         json.dump(metadata, f, indent=2)
 
@@ -410,6 +472,7 @@ def prepare_forecasting_dataset(
 
 
 def main():
+    """Command-line interface entry point."""
     parser = argparse.ArgumentParser(
         description="Urbanix Day 4 Feature Engineering & Chronological Split Pipeline"
     )
@@ -443,6 +506,7 @@ def main():
 
     spark = get_spark_session()
     try:
+        # Run preparation pipeline
         prepare_forecasting_dataset(
             spark=spark,
             input_path=args.input_path,
@@ -452,6 +516,7 @@ def main():
             train_ratio=args.train_ratio,
         )
     finally:
+        # Ensure clean Spark stop
         spark.stop()
 
 

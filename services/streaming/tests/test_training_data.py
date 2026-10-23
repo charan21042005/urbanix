@@ -1,28 +1,41 @@
-"""
-Urbanix Day 4 — Automated Test Suite: Feature Engineering & Chronological Split
-================================================================================
-Comprehensive unit and integration tests verifying:
-1. Future label construction using lead() partitioned by zone.
-2. Prevention of cross-zone label bleeding.
-3. Telemetry gap detection (no false consecutive labels across gaps).
-4. Correct exclusion of the final unlabelled window per zone.
-5. Detection of duplicate keys and data quality errors.
-6. VectorAssembler correctness and target exclusion.
-7. Chronological 80% cutoff computation.
-8. Conservative boundary-crossing exclusion and zero temporal leakage.
-9. Fitting of StringIndexer on the training partition only.
-10. Parquet round-trip persistence and independent verification.
-"""
+# ==============================================================================
+# Urbanix Day 4 — Automated Test Suite: Feature Engineering & Chronological Split
+# ==============================================================================
+# Comprehensive unit and integration tests verifying:
+# 1. Future label construction using lead() partitioned by zone.
+# 2. Prevention of cross-zone label bleeding.
+# 3. Telemetry gap detection (no false consecutive labels across gaps).
+# 4. Correct exclusion of the final unlabelled window per zone.
+# 5. Detection of duplicate keys and data quality errors.
+# 6. VectorAssembler correctness and target exclusion.
+# 7. Chronological 80% cutoff computation.
+# 8. Conservative boundary-crossing exclusion and zero temporal leakage.
+# 9. Fitting of StringIndexer on the training partition only.
+# 10. Parquet round-trip persistence and independent verification.
+#
+# Educational Overview for Beginners:
+# -----------------------------------
+# Why are Time-Series Splits so Tricky in Machine Learning?
+# Unlike standard tabular classification where you can randomly shuffle rows (e.g.,
+# scikit-learn's train_test_split), time-series data has temporal order.
+# If you predict next 5-min speed, the training data must happen strictly BEFORE
+# the test data. Moreover:
+# - Window t=11:55:00 predicts speed at t=12:00:00.
+# - If your train/test split boundary is 12:00:00, then window 11:55:00 crosses the boundary!
+#   Its feature is in the past, but its target is in the test period.
+# - To prevent subtle "target leakage", we must drop boundary-crossing rows.
+# These unit tests verify that our feature pipeline does this mathematical hygiene correctly!
+# ==============================================================================
 
-import os
-import sys
-import tempfile
-import shutil
-from datetime import datetime, timezone, timedelta
-import pytest
+# Standard Python operating system and testing utilities
+import os          # Operating system environment variables and path resolution
+import sys         # Python executable path and system path manipulation
+import tempfile    # Secure creation of temporary directories for isolated test runs
+import shutil      # Directory cleanup and file management
+from datetime import datetime, timezone, timedelta  # UTC timestamp manipulation and delta arithmetic
+import pytest      # Python testing framework
 
-# Ensure project root is in sys.path
-import sys, os
+# Configure sys.path to allow imports from repository root and services/streaming
 from pathlib import Path
 project_root = str(Path(__file__).resolve().parent.parent.parent.parent)
 streaming_dir = str(Path(__file__).resolve().parent.parent)
@@ -31,21 +44,23 @@ if project_root not in sys.path:
 if streaming_dir not in sys.path:
     sys.path.insert(0, streaming_dir)
 
-# Ensure worker subprocesses use driver Python
+# Ensure PySpark worker subprocesses match driver Python runtime on Windows
 os.environ["PYSPARK_PYTHON"] = sys.executable
 os.environ["PYSPARK_DRIVER_PYTHON"] = sys.executable
 
+# PySpark SQL and ML types
 from pyspark.sql import SparkSession
 from pyspark.sql.types import (
-    StructType,
-    StructField,
-    StringType,
-    DoubleType,
-    LongType,
-    TimestampType,
+    StructType,       # Represents structured DataFrame schema
+    StructField,      # Represents a single schema field
+    StringType,       # Text column type
+    DoubleType,       # Double precision floating point number
+    LongType,         # 64-bit integer
+    TimestampType,    # Timestamp representation
 )
-from pyspark.ml.linalg import VectorUDT
+from pyspark.ml.linalg import VectorUDT  # Spark ML vector type
 
+# Modules under test: feature preparation pipeline, custom exceptions, and split auditor
 from prepare_training_data import (
     prepare_forecasting_dataset,
     DataQualityError,
@@ -56,21 +71,28 @@ from verify_split import verify_split
 
 @pytest.fixture(scope="session")
 def spark():
-    """Initializes a shared SparkSession for test execution."""
+    """
+    Initializes a shared SparkSession for test execution.
+    The session is created once per test session and cleanly stopped upon completion.
+    """
     session = (
         SparkSession.builder.appName("UrbanixDay4Tests")
-        .master("local[2]")
-        .config("spark.sql.session.timeZone", "UTC")
-        .config("spark.driver.memory", "2g")
-        .config("spark.ui.enabled", "false")
+        .master("local[2]")                           # 2 local executor threads
+        .config("spark.sql.session.timeZone", "UTC")   # Standardize all dates to UTC
+        .config("spark.driver.memory", "2g")           # 2GB driver memory
+        .config("spark.ui.enabled", "false")           # Disable web UI
         .getOrCreate()
     )
     yield session
+    # Cleanup: cleanly shut down SparkSession
     session.stop()
 
 
 def create_synthetic_traffic_data(spark, num_windows=10, zones=["zone_1", "zone_2"], base_time=None):
-    """Generates a synthetic multi-window traffic feature DataFrame."""
+    """
+    Generates a synthetic multi-window traffic feature DataFrame for testing.
+    Produces clean 5-minute consecutive windows across requested zones.
+    """
     if base_time is None:
         base_time = datetime(2012, 3, 1, 0, 0, 0, tzinfo=timezone.utc)
 
@@ -85,6 +107,7 @@ def create_synthetic_traffic_data(spark, num_windows=10, zones=["zone_1", "zone_
     ])
 
     rows = []
+    # Build consecutive 5-minute (300-second) windows
     for w in range(num_windows):
         w_start = base_time + timedelta(seconds=w * 300)
         w_end = w_start + timedelta(seconds=300)
@@ -104,7 +127,10 @@ def create_synthetic_traffic_data(spark, num_windows=10, zones=["zone_1", "zone_
 
 
 def test_future_label_construction_per_zone(spark):
-    """Verifies that lead() shifts speed by exactly one window per zone."""
+    """
+    Test 1: Verifies that lead() shifts speed by exactly one window per zone.
+    Window w=0 speed should become the target for window w=0.
+    """
     df = create_synthetic_traffic_data(spark, num_windows=4, zones=["zone_1"])
     with tempfile.TemporaryDirectory() as tmp_dir:
         input_path = os.path.join(tmp_dir, "input")
@@ -131,7 +157,10 @@ def test_future_label_construction_per_zone(spark):
 
 
 def test_no_cross_zone_leakage(spark):
-    """Asserts that window ordering and labels do not cross zone boundaries."""
+    """
+    Test 2: Asserts that window ordering and labels do not cross zone boundaries.
+    zone_1 speeds should never leak as targets into zone_2!
+    """
     df = create_synthetic_traffic_data(spark, num_windows=5, zones=["zone_1", "zone_2"])
     with tempfile.TemporaryDirectory() as tmp_dir:
         input_path = os.path.join(tmp_dir, "input")
@@ -163,7 +192,10 @@ def test_no_cross_zone_leakage(spark):
 
 
 def test_last_row_per_zone_dropped(spark):
-    """Verifies that the final window of each zone timeline is excluded from supervised learning."""
+    """
+    Test 3: Verifies that the final window of each zone timeline is excluded from supervised learning
+    because its future consecutive window has not occurred yet.
+    """
     df = create_synthetic_traffic_data(spark, num_windows=6, zones=["zone_1"])
     with tempfile.TemporaryDirectory() as tmp_dir:
         input_path = os.path.join(tmp_dir, "input")
@@ -187,7 +219,11 @@ def test_last_row_per_zone_dropped(spark):
 
 
 def test_gap_handling_no_false_consecutive(spark):
-    """Verifies that time gaps (> 300s) are NOT assigned consecutive future labels."""
+    """
+    Test 4: Verifies that time gaps (> 300s) are NOT assigned consecutive future labels.
+    If sensor telemetry drops offline for an hour, the reading before the outage must NOT
+    use the reading an hour later as a '5-minute future' target.
+    """
     schema = StructType([
         StructField("zone_id", StringType(), False),
         StructField("window_start", TimestampType(), False),
@@ -239,7 +275,9 @@ def test_gap_handling_no_false_consecutive(spark):
 
 
 def test_duplicate_feature_key_detection(spark):
-    """Asserts that duplicate (window_start, zone_id) tuples raise a DataQualityError."""
+    """
+    Test 5: Asserts that duplicate (window_start, zone_id) tuples raise a DataQualityError.
+    """
     df = create_synthetic_traffic_data(spark, num_windows=5, zones=["zone_1"])
     # Duplicate row 0
     duplicate_df = df.union(df.limit(1))
@@ -259,7 +297,10 @@ def test_duplicate_feature_key_detection(spark):
 
 
 def test_target_excluded_from_features(spark):
-    """Verifies that the target variable is NEVER included in the feature vector."""
+    """
+    Test 6: Verifies that the target variable is NEVER included in the feature vector.
+    Including the target inside the feature vector is catastrophic data leakage.
+    """
     df = create_synthetic_traffic_data(spark, num_windows=6, zones=["zone_1"])
     with tempfile.TemporaryDirectory() as tmp_dir:
         input_path = os.path.join(tmp_dir, "input")
@@ -283,7 +324,9 @@ def test_target_excluded_from_features(spark):
 
 
 def test_boundary_crossing_exclusion_and_zero_leakage(spark):
-    """Asserts that boundary-crossing rows are excluded and temporal leakage is zero."""
+    """
+    Test 7: Asserts that boundary-crossing rows are excluded and temporal leakage is zero.
+    """
     df = create_synthetic_traffic_data(spark, num_windows=10, zones=["zone_1"])
     with tempfile.TemporaryDirectory() as tmp_dir:
         input_path = os.path.join(tmp_dir, "input")
@@ -313,7 +356,10 @@ def test_boundary_crossing_exclusion_and_zero_leakage(spark):
 
 
 def test_insufficient_timeline_error(spark):
-    """Verifies that an input table with only 1 window raises an InsufficientCoverageError."""
+    """
+    Test 8: Verifies that an input table with only 1 window raises an InsufficientCoverageError.
+    You cannot form lead(1) pairs with only 1 time slice.
+    """
     df = create_synthetic_traffic_data(spark, num_windows=1, zones=["zone_1"])
     with tempfile.TemporaryDirectory() as tmp_dir:
         input_path = os.path.join(tmp_dir, "input")
@@ -330,7 +376,10 @@ def test_insufficient_timeline_error(spark):
 
 
 def test_unseen_category_in_test_set(spark):
-    """Verifies that StringIndexer handles an unseen zone in the test partition gracefully."""
+    """
+    Test 9: Verifies that StringIndexer handles an unseen zone in the test partition gracefully.
+    By using handleInvalid="keep", Spark ML does not crash when a new zone appears.
+    """
     base = datetime(2012, 3, 1, 0, 0, 0, tzinfo=timezone.utc)
     # First 8 windows: zone_1 only (will land in training partition)
     # Windows 8, 9, 10: zone_new appears only in the future testing period
@@ -378,7 +427,9 @@ def test_unseen_category_in_test_set(spark):
 
 
 def test_null_and_invalid_speed_filtering(spark):
-    """Verifies that speeds > 250 km/h or <= 0.0 are quarantined before label construction."""
+    """
+    Test 10: Verifies that speeds > 250 km/h or <= 0.0 are quarantined before label construction.
+    """
     schema = StructType([
         StructField("zone_id", StringType(), False),
         StructField("window_start", TimestampType(), False),
@@ -420,7 +471,9 @@ def test_null_and_invalid_speed_filtering(spark):
 
 
 def test_deterministic_split(spark):
-    """Verifies that two runs on the same input produce identical train/test partitions."""
+    """
+    Test 11: Verifies that two runs on the same input produce identical train/test partitions.
+    """
     df = create_synthetic_traffic_data(spark, num_windows=8, zones=["zone_1"])
     with tempfile.TemporaryDirectory() as tmp_dir:
         input_path = os.path.join(tmp_dir, "input")
@@ -444,6 +497,7 @@ def test_deterministic_split(spark):
             train_ratio=0.75,
         )
 
+        # Both runs must yield identical row counts and identical cutoff timestamps
         assert meta1["train_row_count"] == meta2["train_row_count"]
         assert meta1["test_row_count"] == meta2["test_row_count"]
         assert meta1["cutoff_timestamp_utc"] == meta2["cutoff_timestamp_utc"]

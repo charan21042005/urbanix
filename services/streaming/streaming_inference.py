@@ -40,34 +40,46 @@ Core Concepts & Architecture:
    When combined with foreachBatch and a Parquet file append sink, this architecture
    guarantees at-least-once delivery: in the event of an ungraceful crash, uncommitted
    micro-batches are re-processed upon query restart from the last committed checkpoint offset.
+
+BEGINNER'S GUIDE:
+In real-time AI pipelines, you train a model offline on historical data (Day 5), then deploy it
+to make live predictions on incoming live data (Day 6).
+This script takes aggregated 5-minute traffic windows as they arrive in real-time, calculates the same
+9 features the model was trained on, asks the MLlib LinearRegressionModel for the predicted future speed,
+and writes the predictions to Parquet so the GraphX routing engine can re-route cars!
 """
 
-import os
-import sys
-import logging
-from pathlib import Path
-from typing import Dict, Any, Optional, Callable
+# --- Standard Library Imports ---
+import os        # File path resolution and directory creation
+import sys       # System arguments and runtime interpreter path
+import logging   # Structured operational logging for distributed streaming micro-batches
+from pathlib import Path  # Object-oriented filesystem path manipulation
+from typing import Dict, Any, Optional, Callable  # Type annotations
 
-# Bind driver python executable for worker subprocesses on Windows
+# Bind driver python executable for worker subprocesses on Windows to prevent pickling errors
 os.environ.setdefault("PYSPARK_PYTHON", sys.executable)
 os.environ.setdefault("PYSPARK_DRIVER_PYTHON", sys.executable)
 
+# --- Apache PySpark SQL & MLlib Imports ---
 from pyspark.sql import DataFrame
 from pyspark.sql.functions import (
-    col,
-    hour,
-    sin,
-    cos,
-    lit,
-    pi,
-    when,
-    round as spark_round,
-    current_timestamp,
-    isnan,
+    col,                # Column reference expression
+    hour,               # Extracts hour of day (0-23) from timestamp
+    sin,                # Mathematical sine function for cyclic encoding
+    cos,                # Mathematical cosine function for cyclic encoding
+    lit,                # Creates literal constant column values
+    pi,                 # Mathematical Pi constant
+    when,               # Conditional SQL CASE/WHEN expression builder
+    round as spark_round,# Rounds floating-point numbers to specified decimal places
+    current_timestamp,  # Returns the current system timestamp
+    isnan,              # Checks if a numeric column contains NaN (Not a Number)
 )
+# VectorAssembler combines multiple numeric columns into a single VectorUDT feature column
 from pyspark.ml.feature import VectorAssembler
+# LinearRegressionModel represents a pre-trained linear regression model artifact
 from pyspark.ml.regression import LinearRegressionModel
 
+# Initialize logger for streaming inference events
 logger = logging.getLogger("UrbanixInference")
 
 # Canonical 9-feature ordering matching Day 4 split metadata and Day 5 model weights
@@ -102,18 +114,19 @@ def load_forecasting_model(model_path: str = "models/linear_regression") -> Line
     preventing silent failures or fallbacks to untrained heuristics.
     
     Args:
-        model_path: Filesystem path to the native Spark MLlib model directory.
+        model_path (str): Filesystem path to the native Spark MLlib model directory.
         
     Returns:
-        Loaded LinearRegressionModel ready for batch transformation.
+        LinearRegressionModel: Loaded model ready for batch transformation.
         
     Raises:
         FileNotFoundError: If the model path or metadata does not exist.
-        TypeError: If the deserialized artifact is not an MLlib regression model.
+        ValueError: If the model expects a different number of features than 9.
     """
     model_dir = Path(model_path)
     metadata_dir = model_dir / "metadata"
     
+    # Verify that the model artifact folder and internal metadata subfolder exist
     if not model_dir.exists() or not metadata_dir.exists():
         raise FileNotFoundError(
             f"Trained model artifact not found at '{model_path}'. "
@@ -121,8 +134,10 @@ def load_forecasting_model(model_path: str = "models/linear_regression") -> Line
         )
     
     logger.info(f"Loading native Spark MLlib model from: {model_path}")
+    # Load the persisted model using Spark MLlib's native loader
     model = LinearRegressionModel.load(str(model_path))
     
+    # Verify that the model expects exactly 9 features matching our feature schema
     num_features = model.numFeatures
     if num_features != len(INFERENCE_FEATURE_COLS):
         raise ValueError(
@@ -151,11 +166,11 @@ def prepare_traffic_features(df: DataFrame) -> DataFrame:
       6. VectorAssembler -> 'features'
       
     Args:
-        df: Aggregated windowed traffic DataFrame containing zone_id, window_start,
-            avg_speed_kmph, min_speed_kmph, max_speed_kmph, traffic_record_count.
+        df (DataFrame): Aggregated windowed traffic DataFrame containing zone_id, window_start,
+                        avg_speed_kmph, min_speed_kmph, max_speed_kmph, traffic_record_count.
             
     Returns:
-        DataFrame augmented with intermediate feature columns and the assembled 'features' vector.
+        DataFrame: Augmented with intermediate feature columns and the assembled 'features' vector.
     """
     # Enforce mandatory input columns
     required_inputs = [
@@ -170,7 +185,7 @@ def prepare_traffic_features(df: DataFrame) -> DataFrame:
         if c not in df.columns:
             raise ValueError(f"Input DataFrame missing mandatory feature column: '{c}'")
     
-    # 1. Deterministic zone index expression
+    # 1. Deterministic zone index expression (encodes categorical zone_id as float 0.0 to 4.0)
     zone_expr = (
         when(col("zone_id") == "zone_1", 0.0)
         .when(col("zone_id") == "zone_2", 1.0)
@@ -182,12 +197,16 @@ def prepare_traffic_features(df: DataFrame) -> DataFrame:
     
     # 2. Derive speed spread and cyclic temporal encodings
     featured_df = (
+        # Speed spread measures traffic volatility / variance within the 5-minute window
         df.withColumn("speed_spread_kmph", col("max_speed_kmph") - col("min_speed_kmph"))
+        # Extract integer hour (0-23)
         .withColumn("hour_of_day", hour(col("window_start")))
+        # Sinusoidal diurnal encoding: smoothly wraps 23:59 to 00:00
         .withColumn(
             "sin_hour",
             sin(lit(2.0) * lit(3.141592653589793) * col("hour_of_day") / lit(24.0)),
         )
+        # Cosine diurnal encoding: orthogonal coordinate
         .withColumn(
             "cos_hour",
             cos(lit(2.0) * lit(3.141592653589793) * col("hour_of_day") / lit(24.0)),
@@ -195,11 +214,11 @@ def prepare_traffic_features(df: DataFrame) -> DataFrame:
         .withColumn("zone_index", zone_expr)
     )
     
-    # 3. Assemble into VectorUDT column (strictly error on invalid/null/NaN features)
+    # 3. Assemble all 9 features into a single VectorUDT column called 'features'
     assembler = VectorAssembler(
         inputCols=INFERENCE_FEATURE_COLS,
         outputCol="features",
-        handleInvalid="error",
+        handleInvalid="error",  # Strictly error out if any input feature is null or NaN
     )
     assembled_df = assembler.transform(featured_df)
     return assembled_df
@@ -215,17 +234,18 @@ def predict_traffic_speed(
     producing calibrated velocity forecasts for the subsequent 5-minute interval.
     
     Args:
-        df: DataFrame containing the assembled 'features' vector column.
-        model: Pre-loaded LinearRegressionModel instance.
-        prediction_col_name: Name of the primary predicted velocity column.
+        df (DataFrame): DataFrame containing the assembled 'features' vector column.
+        model (LinearRegressionModel): Pre-loaded LinearRegressionModel instance.
+        prediction_col_name (str): Name of the primary predicted velocity column.
         
     Returns:
-        DataFrame augmented with predicted speed columns and model metadata.
+        DataFrame: Augmented with predicted speed columns and model metadata.
     """
+    # If feature vector is not already present, build it
     if "features" not in df.columns:
         df = prepare_traffic_features(df)
     
-    # MLlib adds 'prediction' column
+    # MLlib adds a new column named 'prediction'
     raw_predictions = model.transform(df)
     
     # Round predictions to 2 decimal places and provide alias for downstream compatibility
@@ -234,8 +254,11 @@ def predict_traffic_speed(
             prediction_col_name,
             spark_round(col("prediction"), 2),
         )
+        # Provide duplicate alias 'predicted_speed' for backwards compatibility
         .withColumn("predicted_speed", col(prediction_col_name))
+        # Document the model provenance
         .withColumn("prediction_model", lit("LinearRegression_OLS"))
+        # Timestamp the inference execution time
         .withColumn("prediction_timestamp", current_timestamp())
     )
     
@@ -260,13 +283,14 @@ def make_traffic_batch_processor(
     enabling native MLlib transformation and durable Parquet append persistence.
     
     Args:
-        model: Pre-loaded LinearRegressionModel on the driver.
-        output_path: Destination directory for predicted traffic features.
-        prediction_col_name: Output column name for predicted velocity.
+        model (LinearRegressionModel): Pre-loaded LinearRegressionModel on the driver.
+        output_path (str): Destination directory for predicted traffic features.
+        prediction_col_name (str): Output column name for predicted velocity.
         
     Returns:
         Callable process_batch(batch_df, batch_id) suitable for foreachBatch.
     """
+    # Ensure destination directory exists on disk
     os.makedirs(output_path, exist_ok=True)
     
     def process_batch(batch_df: DataFrame, batch_id: int):

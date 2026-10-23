@@ -1,31 +1,46 @@
-"""
-Urbanix — Day 6 Automated Test Suite: Live MLlib Streaming Inference & Checkpoint Recovery
-==========================================================================================
-Comprehensive unit and integration tests verifying:
-1. Native model deserialization from 'models/linear_regression' (9-feature vector).
-2. Proper FileNotFoundError handling when model artifact path is missing or invalid.
-3. Feature engineering parity: exact 9-feature ordering, cyclic sin/cos hour, zone indexing.
-4. ValueError on missing mandatory streaming input columns.
-5. Live prediction output schema: 'predicted_speed_kmph', 'predicted_speed', 'prediction_model'.
-6. Finite and physically plausible predicted speeds (no nulls, NaNs, or infinities).
-7. Preservation of zone_id and window_start temporal metadata through inference.
-8. Honest handling of AQI/PM2.5: no fabricated PM2.5 forecasting model.
-9. ForeachBatch callback execution and durable Parquet append persistence.
-10. Checkpoint recovery simulation: query restarts from existing checkpoint directory,
-    resumes offset progression, and preserves data integrity without state corruption.
-"""
+# ==============================================================================
+# Urbanix — Day 6 Automated Test Suite: Live MLlib Streaming Inference & Checkpoint Recovery
+# ==============================================================================
+# Comprehensive unit and integration tests verifying:
+# 1. Native model deserialization from 'models/linear_regression' (9-feature vector).
+# 2. Proper FileNotFoundError handling when model artifact path is missing or invalid.
+# 3. Feature engineering parity: exact 9-feature ordering, cyclic sin/cos hour, zone indexing.
+# 4. ValueError on missing mandatory streaming input columns.
+# 5. Live prediction output schema: 'predicted_speed_kmph', 'predicted_speed', 'prediction_model'.
+# 6. Finite and physically plausible predicted speeds (no nulls, NaNs, or infinities).
+# 7. Preservation of zone_id and window_start temporal metadata through inference.
+# 8. Honest handling of AQI/PM2.5: no fabricated PM2.5 forecasting model.
+# 9. ForeachBatch callback execution and durable Parquet append persistence.
+# 10. Checkpoint recovery simulation: query restarts from existing checkpoint directory,
+#     resumes offset progression, and preserves data integrity without state corruption.
+#
+# Educational Overview for Beginners:
+# -----------------------------------
+# What is Live Streaming Inference?
+# In Day 3, we built streaming aggregation (computing average speed over 5-minute windows).
+# In Day 5, we trained an MLlib LinearRegression model to predict speed for the NEXT 5-min window.
+# In Day 6, we connect them! As each 5-minute micro-batch finishes in the stream:
+# - The model scores each row in real-time.
+# - It appends predicted_speed_kmph to the record.
+# - It saves both the actual observations and predictions to Parquet.
+# This test suite rigorously verifies that the model loads once, computes features
+# identically to training time, never generates invalid/unphysical predictions,
+# and safely resumes if a server crash occurs.
+# ==============================================================================
 
-import os
-import sys
-import tempfile
-from pathlib import Path
-from datetime import datetime
-import pytest
+# Standard system and file path utilities
+import os          # Operating system environment variables and path verification
+import sys         # Python executable path and system path manipulation
+import tempfile    # Secure creation of temporary test directories
+from pathlib import Path  # Object-oriented path manipulation
+from datetime import datetime  # Datetime manipulation for test timestamps
+import pytest      # Python testing framework
 
-# Ensure worker subprocesses use driver Python
+# Ensure PySpark worker processes run using the driver's Python executable on Windows
 os.environ.setdefault("PYSPARK_PYTHON", sys.executable)
 os.environ.setdefault("PYSPARK_DRIVER_PYTHON", sys.executable)
 
+# Configure paths to allow importing project root and services/streaming modules
 project_root = str(Path(__file__).resolve().parent.parent.parent.parent)
 streaming_dir = str(Path(__file__).resolve().parent.parent)
 if project_root not in sys.path:
@@ -33,19 +48,21 @@ if project_root not in sys.path:
 if streaming_dir not in sys.path:
     sys.path.insert(0, streaming_dir)
 
+# PySpark SQL and MLlib imports
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import col, to_timestamp
 from pyspark.sql.types import (
-    StructType,
-    StructField,
-    StringType,
-    DoubleType,
-    LongType,
-    TimestampType,
+    StructType,       # Structured table schema
+    StructField,      # Single schema field definition
+    StringType,       # Text column type
+    DoubleType,       # Floating point decimal type
+    LongType,         # 64-bit integer type
+    TimestampType,    # Timestamp representation
 )
-from pyspark.ml.linalg import VectorUDT
-from pyspark.ml.regression import LinearRegressionModel
+from pyspark.ml.linalg import VectorUDT                  # Spark ML vector column type
+from pyspark.ml.regression import LinearRegressionModel  # Deserialized linear regression model class
 
+# Import functions under test from streaming_inference
 from streaming_inference import (
     load_forecasting_model,
     prepare_traffic_features,
@@ -57,22 +74,29 @@ from streaming_inference import (
 
 @pytest.fixture(scope="session")
 def spark():
-    """Builds a shared SparkSession for test execution."""
+    """
+    Builds a shared SparkSession for test execution.
+    The session is created once per test session and cleanly stopped upon completion.
+    """
     session = (
         SparkSession.builder.appName("UrbanixDay6InferenceTests")
-        .master("local[2]")
-        .config("spark.sql.session.timeZone", "UTC")
-        .config("spark.driver.memory", "2g")
-        .config("spark.ui.enabled", "false")
+        .master("local[2]")                           # 2 local executor threads
+        .config("spark.sql.session.timeZone", "UTC")   # Standardize all dates to UTC
+        .config("spark.driver.memory", "2g")           # 2GB driver memory
+        .config("spark.ui.enabled", "false")           # Disable web UI
         .getOrCreate()
     )
     yield session
+    # Cleanup: cleanly shut down SparkSession
     session.stop()
 
 
 @pytest.fixture
 def sample_windowed_traffic(spark):
-    """Generates synthetic windowed traffic data mirroring Day 3 streaming output."""
+    """
+    Generates synthetic windowed traffic data mirroring Day 3 streaming output:
+    5 records covering zones 1 to 5 for the 07:00:00 to 07:05:00 UTC time window.
+    """
     raw_data = [
         ("zone_1", "2012-03-01 07:00:00", "2012-03-01 07:05:00", 45, 95.50, 72.00, 110.00),
         ("zone_2", "2012-03-01 07:00:00", "2012-03-01 07:05:00", 50, 88.20, 65.00, 105.00),
@@ -84,6 +108,7 @@ def sample_windowed_traffic(spark):
         raw_data,
         ["zone_id", "w_start_str", "w_end_str", "traffic_record_count", "avg_speed_kmph", "min_speed_kmph", "max_speed_kmph"]
     )
+    # Parse date strings into genuine Spark TimestampType columns
     return (
         df.withColumn("window_start", to_timestamp("w_start_str", "yyyy-MM-dd HH:mm:ss"))
         .withColumn("window_end", to_timestamp("w_end_str", "yyyy-MM-dd HH:mm:ss"))
@@ -96,28 +121,36 @@ def sample_windowed_traffic(spark):
 # =============================================================================
 
 def test_load_forecasting_model_success(spark):
-    """Verifies that the canonical Day 5 Linear Regression model loads and has 9 features."""
+    """
+    Test 1: Verifies that the canonical Day 5 Linear Regression model loads and has 9 features.
+    """
     model_path = os.path.join(project_root, "models", "linear_regression")
     assert os.path.exists(model_path), f"Missing model directory at {model_path}"
     
+    # Load model from disk
     model = load_forecasting_model(model_path)
     assert isinstance(model, LinearRegressionModel)
     assert model.numFeatures == len(INFERENCE_FEATURE_COLS)
     assert model.numFeatures == 9
+    # Verify learned intercept matches Day 5 report
     assert abs(model.intercept - 44.064) < 1e-2
 
 
 def test_load_forecasting_model_missing_raises():
-    """Verifies that attempting to load a non-existent model raises FileNotFoundError."""
+    """
+    Test 2: Verifies that attempting to load a non-existent model raises FileNotFoundError.
+    """
     with pytest.raises(FileNotFoundError, match="Trained model artifact not found"):
         load_forecasting_model("models/non_existent_model_dir")
 
 
 def test_prepare_traffic_features_schema_and_dimension(sample_windowed_traffic):
-    """Verifies that prepare_traffic_features builds the exact 9-feature VectorUDT."""
+    """
+    Test 3: Verifies that prepare_traffic_features builds the exact 9-feature VectorUDT.
+    """
     featured_df = prepare_traffic_features(sample_windowed_traffic)
     
-    # Check intermediate feature columns
+    # Check that intermediate mathematical feature columns exist
     expected_cols = [
         "speed_spread_kmph",
         "hour_of_day",
@@ -132,21 +165,23 @@ def test_prepare_traffic_features_schema_and_dimension(sample_windowed_traffic):
     features_field = [f for f in featured_df.schema.fields if f.name == "features"][0]
     assert isinstance(features_field.dataType, VectorUDT)
     
-    # Inspect first vector
+    # Inspect first feature vector
     first_row = featured_df.first()
     vec = first_row["features"]
     assert len(vec) == 9
     
-    # Check speed_spread calculation (110.0 - 72.0 = 38.0)
+    # Check speed_spread calculation (110.0 max - 72.0 min = 38.0 spread)
     assert abs(first_row["speed_spread_kmph"] - 38.0) < 1e-4
     # Check hour_of_day (7:00 UTC -> 7)
     assert first_row["hour_of_day"] == 7
-    # Check zone_index mapping for zone_1 -> 0.0
+    # Check zone_index mapping for zone_1 -> index 0.0
     assert abs(first_row["zone_index"] - 0.0) < 1e-4
 
 
 def test_prepare_traffic_features_missing_cols_raises(spark):
-    """Verifies ValueError when required telemetry fields are absent."""
+    """
+    Test 4: Verifies ValueError when required telemetry fields are absent.
+    """
     schema = StructType([
         StructField("zone_id", StringType(), False),
         StructField("window_start", TimestampType(), False),
@@ -158,7 +193,9 @@ def test_prepare_traffic_features_missing_cols_raises(spark):
 
 
 def test_prepare_traffic_features_null_feature_raises(spark):
-    """Verifies that null features are rejected by VectorAssembler(handleInvalid='error')."""
+    """
+    Test 5: Verifies that null features are rejected by VectorAssembler(handleInvalid='error').
+    """
     schema = StructType([
         StructField("zone_id", StringType(), False),
         StructField("window_start", TimestampType(), False),
@@ -179,7 +216,7 @@ def test_prepare_traffic_features_null_feature_raises(spark):
 
 def test_run_pipeline_missing_model_raises_explicitly(tmp_path):
     """
-    Verifies that when live inference is enabled (default), a missing model path
+    Test 6: Verifies that when live inference is enabled (default), a missing model path
     raises FileNotFoundError immediately at pipeline startup rather than silently
     falling back to standard feature aggregation.
     """
@@ -211,12 +248,15 @@ def test_run_pipeline_missing_model_raises_explicitly(tmp_path):
 # =============================================================================
 
 def test_predict_traffic_speed_finite_values(sample_windowed_traffic):
-    """Verifies that model inference produces finite, calibrated velocity predictions."""
+    """
+    Test 7: Verifies that model inference produces finite, calibrated velocity predictions.
+    """
     model_path = os.path.join(project_root, "models", "linear_regression")
     model = load_forecasting_model(model_path)
     
     predicted_df = predict_traffic_speed(sample_windowed_traffic, model)
     
+    # Assert expected prediction columns exist
     assert "predicted_speed_kmph" in predicted_df.columns
     assert "predicted_speed" in predicted_df.columns
     assert "prediction_model" in predicted_df.columns
@@ -240,7 +280,7 @@ def test_predict_traffic_speed_finite_values(sample_windowed_traffic):
 
 def test_no_fabricated_pm25_model():
     """
-    Verifies that no AQI/PM2.5 forecasting model is fabricated or falsely loaded.
+    Test 8: Verifies that no AQI/PM2.5 forecasting model is fabricated or falsely loaded.
     Day 5 specifically trained models for traffic speed only.
     """
     pm25_model_path = os.path.join(project_root, "models", "pm25_forecasting")
@@ -253,7 +293,7 @@ def test_no_fabricated_pm25_model():
 
 def test_make_traffic_batch_processor_appends_parquet(spark, sample_windowed_traffic):
     """
-    Verifies that make_traffic_batch_processor executes foreachBatch correctly
+    Test 9: Verifies that make_traffic_batch_processor executes foreachBatch correctly
     and appends predicted records to the Parquet destination.
     """
     model_path = os.path.join(project_root, "models", "linear_regression")
@@ -286,7 +326,7 @@ def test_make_traffic_batch_processor_appends_parquet(spark, sample_windowed_tra
 
 def test_checkpoint_recovery_simulation(spark, sample_windowed_traffic):
     """
-    Simulates a streaming process crash and restart against an identical checkpoint directory.
+    Test 10: Simulates a streaming process crash and restart against an identical checkpoint directory.
     
     Verifies:
     1. Query 1 initializes checkpoint metadata (commits, offsets).
@@ -308,7 +348,7 @@ def test_checkpoint_recovery_simulation(spark, sample_windowed_traffic):
         # Phase 1: Micro-batch 0 processed under initial run
         batch_processor(sample_windowed_traffic, batch_id=0)
         
-        # Simulate checkpoint state tracking
+        # Simulate checkpoint state tracking (writing commit log)
         commit_log_file = os.path.join(checkpoint_dir, "metadata")
         with open(commit_log_file, "w", encoding="utf-8") as f:
             f.write('{"v": 1, "batch_id": 0, "status": "COMMITTED"}\n')

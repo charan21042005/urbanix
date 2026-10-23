@@ -12,17 +12,27 @@ Verification Checks:
 4. Schema Completeness: Asserts presence of predicted_speed_kmph and temporal metadata.
 5. Checkpoint Durability: Verifies checkpoint directory structure and state files.
 6. PM2.5 Integrity Audit: Asserts that no unverified AQI forecasting model is active.
+
+BEGINNER'S GUIDE:
+This script acts as an independent quality-assurance auditor. In production data engineering,
+verifiers confirm that machine learning models in production:
+(a) deserialize properly from disk,
+(b) consume feature vectors matching training schemas,
+(c) output predictions adhering to physical reality (e.g. speeds between 0 and 250 km/h),
+(d) maintain column contracts required by downstream consumers (like GraphX routing).
 """
 
-import os
-import sys
-import argparse
-from pathlib import Path
+# --- Standard Library Imports ---
+import os        # File system operations and environment variables
+import sys       # System parameters, path manipulation, and exit status codes
+import argparse  # Command-line interface parsing
+from pathlib import Path  # Object-oriented filesystem path manipulation
 
-# Ensure worker subprocesses use driver Python
+# Ensure worker subprocesses use driver Python runtime to prevent serialization bugs
 os.environ.setdefault("PYSPARK_PYTHON", sys.executable)
 os.environ.setdefault("PYSPARK_DRIVER_PYTHON", sys.executable)
 
+# Dynamically resolve project root and streaming directory to support imports from any working directory
 project_root = str(Path(__file__).resolve().parent.parent.parent)
 streaming_dir = str(Path(__file__).resolve().parent)
 if project_root not in sys.path:
@@ -30,10 +40,12 @@ if project_root not in sys.path:
 if streaming_dir not in sys.path:
     sys.path.insert(0, streaming_dir)
 
+# --- Apache PySpark SQL & MLlib Imports ---
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import col, isnan
 from pyspark.ml.regression import LinearRegressionModel
 
+# Import production inference pipeline functions and feature list
 from streaming_inference import (
     load_forecasting_model,
     prepare_traffic_features,
@@ -43,12 +55,24 @@ from streaming_inference import (
 
 
 def get_spark_session(app_name: str = "UrbanixInferenceVerifier") -> SparkSession:
-    """Builds a local SparkSession configured for deterministic execution."""
+    """
+    Builds a local SparkSession configured for deterministic execution.
+
+    Parameters:
+        app_name (str): Spark application name displayed in logs.
+
+    Returns:
+        SparkSession: Configured active session instance.
+    """
     return (
         SparkSession.builder.appName(app_name)
+        # Use 2 local CPU threads
         .master("local[2]")
+        # Standardize timezone to UTC
         .config("spark.sql.session.timeZone", "UTC")
+        # Allocate 2GB driver memory for local evaluation
         .config("spark.driver.memory", "2g")
+        # Disable web UI port conflicts
         .config("spark.ui.enabled", "false")
         .getOrCreate()
     )
@@ -59,7 +83,17 @@ def verify_inference_pipeline(
     traffic_table_path: str = "data/feature_table/traffic",
     spark: SparkSession = None,
 ) -> bool:
-    """Executes the complete Day 6 independent verification checklist."""
+    """
+    Executes the complete Day 6 independent verification checklist.
+
+    Parameters:
+        model_path (str): Path to serialized LinearRegressionModel directory.
+        traffic_table_path (str): Path to Parquet traffic feature table.
+        spark (SparkSession, optional): Existing SparkSession, or creates a new one if None.
+
+    Returns:
+        bool: True if all audit checks pass, False if any check fails.
+    """
     created_spark = False
     if spark is None:
         spark = get_spark_session()
@@ -70,18 +104,22 @@ def verify_inference_pipeline(
         print("URBANIX DAY 6: INDEPENDENT LIVE INFERENCE AUDIT & VERIFICATION")
         print("=" * 75)
 
+        # List to track individual audit results: (check_name, passed_boolean, details_string)
         checks = []
 
         # -------------------------------------------------------------
         # Check 1: Model Artifact Existence and Deserialization
         # -------------------------------------------------------------
+        # Check if the serialized model directory and its internal metadata exist
         model_exists = Path(model_path).exists() and (Path(model_path) / "metadata").exists()
         checks.append(("Model Artifact Existence", model_exists, f"Path: {model_path}"))
         if not model_exists:
             print("[!] Critical model artifact missing. Halting verification.")
             return False
 
+        # Attempt to load the model into memory
         model = load_forecasting_model(model_path)
+        # Verify it is a valid LinearRegressionModel with exactly 9 input features
         model_valid = isinstance(model, LinearRegressionModel) and (model.numFeatures == 9)
         checks.append((
             "Model Deserialization (LinearRegression)",
@@ -92,6 +130,7 @@ def verify_inference_pipeline(
         # -------------------------------------------------------------
         # Check 2: Feature Parity & Contract Audit
         # -------------------------------------------------------------
+        # The 9 exact feature column names engineered during Day 4 training
         expected_features = [
             "avg_speed_kmph",
             "min_speed_kmph",
@@ -103,6 +142,7 @@ def verify_inference_pipeline(
             "cos_hour",
             "zone_index",
         ]
+        # Assert inference feature order matches training feature contract
         features_match = (INFERENCE_FEATURE_COLS == expected_features)
         checks.append((
             "Feature Contract Parity (9 Features)",
@@ -119,11 +159,13 @@ def verify_inference_pipeline(
             print("[!] Traffic feature table not found. Halting verification.")
             return False
 
+        # Load Parquet traffic data and run inference
         traffic_df = spark.read.parquet(traffic_table_path)
         raw_count = traffic_df.count()
         scored_df = predict_traffic_speed(traffic_df, model)
         scored_count = scored_df.count()
 
+        # Scoring must preserve row count (no rows dropped or duplicated)
         count_match = (raw_count == scored_count) and (raw_count > 0)
         checks.append((
             "Inference Row Cardinality Preservation",
@@ -134,12 +176,13 @@ def verify_inference_pipeline(
         # -------------------------------------------------------------
         # Check 4: Predictive Numerical Sanity & Physical Bounds
         # -------------------------------------------------------------
+        # Ensure predicted speeds contain zero nulls or NaNs
         null_or_nan = scored_df.filter(
             col("predicted_speed_kmph").isNull() | isnan(col("predicted_speed_kmph"))
         ).count()
         finite_check = (null_or_nan == 0)
 
-        # Physical speed bounds: 0 < v <= 250 km/h
+        # Physical speed bounds: vehicle velocities must be strictly positive and <= 250 km/h
         out_of_bounds = scored_df.filter(
             (col("predicted_speed_kmph") <= 0.0) | (col("predicted_speed_kmph") > 250.0)
         ).count()
@@ -159,6 +202,7 @@ def verify_inference_pipeline(
         # -------------------------------------------------------------
         # Check 5: Schema Completeness for Downstream GraphX
         # -------------------------------------------------------------
+        # Verify columns required by Scala GraphX RouteRecommender are present
         required_downstream = [
             "zone_id",
             "window_start",
@@ -178,6 +222,7 @@ def verify_inference_pipeline(
         # -------------------------------------------------------------
         # Check 6: Honest AQI/PM2.5 Scope Audit
         # -------------------------------------------------------------
+        # Confirm that no unverified or fabricated PM2.5 model is active
         pm25_model_exists = Path("models/pm25_forecasting").exists()
         pm25_honest = not pm25_model_exists
         checks.append((
@@ -208,20 +253,24 @@ def verify_inference_pipeline(
             return False
 
     finally:
+        # Stop SparkSession if created inside this function
         if created_spark and spark is not None:
             spark.stop()
 
 
 def main():
+    """CLI execution entry point."""
     parser = argparse.ArgumentParser(description="Urbanix Day 6 Independent Inference Verifier")
     parser.add_argument("--model-path", default="models/linear_regression", help="Path to LinearRegression model")
     parser.add_argument("--traffic-table", default="data/feature_table/traffic", help="Path to traffic feature table")
     args = parser.parse_args()
 
+    # Run verification pipeline
     success = verify_inference_pipeline(
         model_path=args.model_path,
         traffic_table_path=args.traffic_table,
     )
+    # Exit with code 0 on success, 1 on failure
     sys.exit(0 if success else 1)
 
 

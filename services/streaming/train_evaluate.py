@@ -1,81 +1,108 @@
-"""
-Urbanix Day 5 — MLlib Model Training & Evaluation Pipeline
-===========================================================
-This module implements the end-to-end model training, evaluation, comparison,
-and persistence pipeline for traffic velocity forecasting in Urbanix.
+# ==============================================================================
+# Urbanix Day 5 — MLlib Model Training & Evaluation Pipeline
+# ==============================================================================
+# This module implements the end-to-end model training, evaluation, comparison,
+# and persistence pipeline for traffic velocity forecasting in Urbanix.
+#
+# Educational Guide for Beginners:
+# --------------------------------
+# What is Apache Spark MLlib?
+# MLlib is Apache Spark's scalable machine learning library. Unlike single-machine
+# libraries (like Scikit-Learn) that load all data into one computer's RAM, Spark MLlib
+# can train models on terabytes of distributed data across hundreds of cluster nodes.
+#
+# In Spark MLlib:
+# - An 'Estimator' (e.g., LinearRegression) learns from data via `.fit(df)` and produces a 'Model'.
+# - A 'Transformer' or 'Model' (e.g., LinearRegressionModel) makes predictions via `.transform(df)`.
+# - A 'Vector' is a single column (`features`) containing an array of floating-point numbers.
+#
+# Key Concepts in this Pipeline:
+# 1. Chronological Split (No Data Leakage):
+#    In time-series forecasting, you NEVER randomly shuffle data! If you randomly shuffle,
+#    the model sees "future" data during training, artificially inflating performance.
+#    Here, the model trains strictly on the first 80% of time (up to 06:20 UTC) and is
+#    tested strictly on the subsequent 20% of time (06:25 to 08:00 UTC).
+# 2. Linear Regression (Model A):
+#    A parametric estimator calculating the linear combination:
+#    prediction = beta_0 + beta_1 * feature_1 + ... + beta_9 * feature_9.
+#    It generalizes exceptionally well across linear trends and extrapolations.
+# 3. Decision Tree Regressor (Model B):
+#    A non-linear estimator that splits data using if/then thresholds. While great at
+#    capturing complex step functions, standard decision trees cannot extrapolate values
+#    outside the range seen during training (often yielding negative R² during novel rush-hour shifts).
+# 4. Standard Metrics:
+#    - R² (Coefficient of Determination): Proportion of variance explained (1.0 = perfect, >0.75 = project target).
+#    - RMSE (Root Mean Squared Error): Typical prediction error in km/h (penalizes large outliers).
+#    - MAE (Mean Absolute Error): Average absolute magnitude of errors in km/h.
+# ==============================================================================
 
-Architecture & Scope:
-1. Data Ingestion:
-   - Reads the chronologically split, leakage-free training partition (data/train)
-     and testing partition (data/test) produced during Day 4.
-2. Estimators Trained:
-   - Model A: pyspark.ml.regression.LinearRegression (interpretable parametric baseline)
-   - Model B: pyspark.ml.regression.DecisionTreeRegressor (non-linear tree-based estimator)
-3. Evaluation Contract:
-   - Both models are evaluated on the IDENTICAL held-out test partition.
-   - Metrics computed via pyspark.ml.evaluation.RegressionEvaluator:
-     * R² (Coefficient of Determination)
-     * RMSE (Root Mean Squared Error, in km/h)
-     * MAE (Mean Absolute Error, in km/h)
-   - Per-zone granular evaluation across all 5 municipal zones (zone_1 to zone_5).
-4. Model Persistence:
-   - Native Spark MLlib persistence (models/linear_regression, models/decision_tree).
-5. Reproducibility & Auditing:
-   - Emits structured evaluation results (reports/day-05/metrics.json, results.md).
-   - Checks the project target (R² > 0.75) for downstream live inference readiness.
-"""
+# Standard Python system and math libraries
+import os          # Operating system environment variables and filesystem inspection
+import sys         # Runtime system parameters and sys.path configuration
+import json        # Serializing evaluation metrics to machine-readable JSON
+import math        # Mathematical functions (nan, isinf checks)
+import argparse    # Command-line argument parsing for configurable training runs
+from datetime import datetime, timezone  # Generating standardized UTC timestamps
+from pathlib import Path                 # Object-oriented filesystem path manipulation
+from typing import Dict, Any, List, Optional  # Type hinting for static code analysis
 
-import os
-import sys
-import json
-import math
-import argparse
-from datetime import datetime, timezone
-from pathlib import Path
-from typing import Dict, Any, List, Optional
-
-# Ensure worker subprocesses use driver Python on Windows
+# ------------------------------------------------------------------------------
+# PySpark Environment Configuration
+# ------------------------------------------------------------------------------
+# On Windows environments, ensure PySpark worker processes run using driver's Python executable
 os.environ["PYSPARK_PYTHON"] = sys.executable
 os.environ["PYSPARK_DRIVER_PYTHON"] = sys.executable
 
-from pyspark.sql import SparkSession, DataFrame
-from pyspark.sql.functions import col, count as spark_count, lit, isnan
-from pyspark.ml.linalg import VectorUDT
-from pyspark.ml.regression import (
-    LinearRegression,
-    LinearRegressionModel,
-    DecisionTreeRegressor,
-    DecisionTreeRegressionModel,
+# PySpark SQL and MLlib imports
+from pyspark.sql import SparkSession, DataFrame  # Core Spark session and table representations
+from pyspark.sql.functions import (
+    col,           # References a column expression
+    count as spark_count,  # Counts rows
+    lit,           # Inserts literal constant values
+    isnan,         # Detects IEEE NaN (Not a Number) floating-point values
 )
-from pyspark.ml.evaluation import RegressionEvaluator
+from pyspark.ml.linalg import VectorUDT  # User-Defined Type representing dense/sparse ML vectors
+from pyspark.ml.regression import (
+    LinearRegression,             # Estimator for Ordinary Least Squares (OLS) / ElasticNet regression
+    LinearRegressionModel,        # Fitted Linear Regression model instance
+    DecisionTreeRegressor,        # Estimator for Decision Tree regression
+    DecisionTreeRegressionModel,  # Fitted Decision Tree model instance
+)
+from pyspark.ml.evaluation import RegressionEvaluator  # Computes standard regression metrics (R², RMSE, MAE)
 
 
+# ------------------------------------------------------------------------------
+# Feature and Target Column Specifications
+# ------------------------------------------------------------------------------
+# Names of the 9 features packed into the MLlib feature vector in prepare_training_data.py
 FEATURE_NAMES = [
-    "avg_speed_kmph",
-    "speed_spread_kmph",
-    "min_speed_kmph",
-    "max_speed_kmph",
-    "reading_count",
-    "sin_hour",
-    "cos_hour",
-    "zone_index",
-    "speed_lag_1",
+    "avg_speed_kmph",      # Current 5-min average speed in km/h
+    "speed_spread_kmph",   # Difference between max and min speed in window (velocity volatility)
+    "min_speed_kmph",      # Lowest sensor speed recorded in window
+    "max_speed_kmph",      # Highest sensor speed recorded in window
+    "reading_count",       # Total sensor observations aggregated in window
+    "sin_hour",            # Sine component of time-of-day (cyclical 24-hour cycle)
+    "cos_hour",            # Cosine component of time-of-day (cyclical 24-hour cycle)
+    "zone_index",          # Numeric index identifying the geographic zone (0 to 4)
+    "speed_lag_1",         # Velocity recorded in previous 5-minute interval (autoregressive term)
 ]
 
-TARGET_COLUMN = "next_avg_speed_kmph"
-FEATURES_COLUMN = "features"
-ZONE_COLUMN = "zone_id"
-TIMESTAMP_COLUMN = "window_start"
+TARGET_COLUMN = "next_avg_speed_kmph"  # The ground truth speed in the *next* 5-minute interval
+FEATURES_COLUMN = "features"           # The MLlib VectorUDT column containing the 9 feature values
+ZONE_COLUMN = "zone_id"                # String zone identifier (e.g. 'zone_1')
+TIMESTAMP_COLUMN = "window_start"      # UTC start timestamp of the observation window
 
 
 def get_spark_session(app_name: str = "UrbanixModelTraining") -> SparkSession:
-    """Builds a local SparkSession configured for deterministic execution."""
+    """
+    Builds a local SparkSession configured for deterministic MLlib execution.
+    """
     return (
         SparkSession.builder.appName(app_name)
-        .master("local[2]")
-        .config("spark.sql.session.timeZone", "UTC")
-        .config("spark.driver.memory", "2g")
-        .config("spark.ui.enabled", "false")
+        .master("local[2]")                           # Use 2 local executor threads
+        .config("spark.sql.session.timeZone", "UTC")   # Standardize all timestamps to UTC
+        .config("spark.driver.memory", "2g")           # Allocate 2GB RAM to driver
+        .config("spark.ui.enabled", "false")           # Disable Web UI for faster batch runs
         .getOrCreate()
     )
 
@@ -83,36 +110,39 @@ def get_spark_session(app_name: str = "UrbanixModelTraining") -> SparkSession:
 def validate_input_dataframe(df: DataFrame, partition_name: str) -> int:
     """
     Validates schema, column existence, vector dimensions, and non-emptiness.
-    Raises ValueError on integrity violations.
+    Raises ValueError on integrity violations to guarantee clean machine learning inputs.
     """
+    # 1. Verify partition contains rows
     row_count = df.count()
     if row_count == 0:
         raise ValueError(f"Partition '{partition_name}' is empty (0 rows).")
 
+    # 2. Check all mandatory columns exist in the DataFrame
     required_cols = [TARGET_COLUMN, FEATURES_COLUMN, ZONE_COLUMN, TIMESTAMP_COLUMN]
     for c in required_cols:
         if c not in df.columns:
             raise ValueError(f"Missing required column '{c}' in '{partition_name}'.")
 
-    # Validate feature vector type and dimension
+    # 3. Validate feature vector type is VectorUDT (MLlib requirement)
     features_field = [f for f in df.schema.fields if f.name == FEATURES_COLUMN][0]
     if not isinstance(features_field.dataType, VectorUDT):
         raise TypeError(
             f"Column '{FEATURES_COLUMN}' must be VectorUDT, got {features_field.dataType}."
         )
 
+    # 4. Check feature vector dimension matches expected 9 features
     first_vec = df.select(FEATURES_COLUMN).first()[0]
     if len(first_vec) != len(FEATURE_NAMES):
         raise ValueError(
             f"Expected {len(FEATURE_NAMES)}-dimensional feature vector, found dimension {len(first_vec)}."
         )
 
-    # Validate target column has no nulls or non-finite values
+    # 5. Validate target column has no null or NaN values
     null_targets = df.filter(col(TARGET_COLUMN).isNull() | isnan(col(TARGET_COLUMN))).count()
     if null_targets > 0:
         raise ValueError(f"Partition '{partition_name}' contains {null_targets} null/NaN targets.")
 
-    # Validate target values are within realistic physical bounds (0 < speed <= 250 km/h)
+    # 6. Validate target values are within realistic physical bounds (0 < speed <= 250 km/h)
     out_of_bounds = df.filter(
         (col(TARGET_COLUMN) <= 0.0) | (col(TARGET_COLUMN) > 250.0)
     ).count()
@@ -132,12 +162,18 @@ def compute_regression_metrics(
     """
     Evaluates predictions against ground truth using Spark's RegressionEvaluator.
     Handles small-sample and constant-variance edge cases gracefully.
+    
+    Returns a dictionary with:
+      - r2: Coefficient of Determination (explained variance ratio)
+      - rmse: Root Mean Squared Error (in km/h)
+      - mae: Mean Absolute Error (in km/h)
+      - count: Number of evaluated rows
     """
     n_samples = predictions_df.count()
     if n_samples == 0:
         return {"r2": None, "rmse": None, "mae": None, "count": 0}
 
-    # Verify no null or NaN predictions were produced
+    # Verify no null or NaN predictions were produced by the model
     invalid_preds = predictions_df.filter(
         col(pred_col).isNull() | isnan(col(pred_col))
     ).count()
@@ -151,6 +187,8 @@ def compute_regression_metrics(
     ).first()
 
     std_label = stats["std_label"]
+    
+    # Initialize Spark evaluators for RMSE, MAE, and R²
     evaluator_rmse = RegressionEvaluator(
         labelCol=label_col, predictionCol=pred_col, metricName="rmse"
     )
@@ -161,16 +199,18 @@ def compute_regression_metrics(
         labelCol=label_col, predictionCol=pred_col, metricName="r2"
     )
 
+    # Compute raw floating-point metrics
     rmse = float(evaluator_rmse.evaluate(predictions_df))
     mae = float(evaluator_mae.evaluate(predictions_df))
 
+    # Guard against undefined R² in tiny or zero-variance slices
     if n_samples < 2 or std_label is None or std_label == 0.0:
-        # Constant label or single sample: R² is undefined
         r2 = None
     else:
         r2_val = float(evaluator_r2.evaluate(predictions_df))
         r2 = r2_val if not (math.isnan(r2_val) or math.isinf(r2_val)) else None
 
+    # Return rounded, beginner-friendly dictionary
     return {
         "r2": round(r2, 4) if r2 is not None else None,
         "rmse": round(rmse, 4),
@@ -184,13 +224,18 @@ def evaluate_per_zone(
     label_col: str = TARGET_COLUMN,
     pred_col: str = "prediction",
 ) -> Dict[str, Dict[str, Any]]:
-    """Computes R², RMSE, and MAE independently for each distinct zone_id."""
+    """
+    Computes R², RMSE, and MAE independently for each distinct zone_id.
+    This lets traffic engineers see if the model performs better downtown vs outer highways.
+    """
+    # Extract distinct zone identifiers present in the predictions DataFrame
     zones = [
         row[ZONE_COLUMN]
         for row in predictions_df.select(ZONE_COLUMN).distinct().sort(ZONE_COLUMN).collect()
     ]
     per_zone_metrics = {}
 
+    # Evaluate each geographic zone separately
     for zone in zones:
         zone_subset = predictions_df.filter(col(ZONE_COLUMN) == zone)
         metrics = compute_regression_metrics(zone_subset, label_col=label_col, pred_col=pred_col)
@@ -261,6 +306,7 @@ def train_and_evaluate_models(
         print(f"    - regParam={reg_param}, elasticNetParam={elastic_net_param}")
         print("    - fitIntercept=True, standardization=True")
 
+        # Configure the LinearRegression estimator
         lr = LinearRegression(
             featuresCol=FEATURES_COLUMN,
             labelCol=TARGET_COLUMN,
@@ -271,6 +317,7 @@ def train_and_evaluate_models(
             standardization=True,
         )
 
+        # Train the model strictly on the training partition
         lr_model = lr.fit(train_df)
         print(f"[+] Linear Regression training complete.")
         print(f"    - Intercept    : {lr_model.intercept:.4f}")
@@ -299,6 +346,7 @@ def train_and_evaluate_models(
         print(f"    - labelCol='{TARGET_COLUMN}'")
         print(f"    - maxDepth={dt_max_depth}, seed=42")
 
+        # Configure the DecisionTreeRegressor estimator
         dt = DecisionTreeRegressor(
             featuresCol=FEATURES_COLUMN,
             labelCol=TARGET_COLUMN,
@@ -307,6 +355,7 @@ def train_and_evaluate_models(
             seed=42,
         )
 
+        # Train the tree model strictly on the training partition
         dt_model = dt.fit(train_df)
         print(f"[+] Decision Tree training complete.")
         print(f"    - Tree depth       : {dt_model.depth}")
@@ -361,6 +410,7 @@ def train_and_evaluate_models(
         Path(lr_model_path).parent.mkdir(parents=True, exist_ok=True)
         Path(dt_model_path).parent.mkdir(parents=True, exist_ok=True)
 
+        # Preserve any existing model README documentation while overwriting model weights
         lr_readme = Path(lr_model_path) / "README.md"
         lr_readme_content = lr_readme.read_text(encoding="utf-8") if lr_readme.exists() else None
         lr_model.write().overwrite().save(lr_model_path)
@@ -385,6 +435,7 @@ def train_and_evaluate_models(
 
         timestamp_utc = datetime.now(timezone.utc).isoformat()
 
+        # Build comprehensive metadata dictionary
         metrics_payload = {
             "evaluation_timestamp_utc": timestamp_utc,
             "provenance": {
@@ -440,11 +491,13 @@ def train_and_evaluate_models(
             },
         }
 
+        # Write machine-readable metrics JSON
         metrics_json_path = Path(output_dir) / "metrics.json"
         with open(metrics_json_path, "w", encoding="utf-8") as f:
             json.dump(metrics_payload, f, indent=2)
         print(f"[+] Exported machine-readable metrics: {metrics_json_path}")
 
+        # Write per-zone metrics JSON
         per_zone_json_path = Path(output_dir) / "per_zone_metrics.json"
         with open(per_zone_json_path, "w", encoding="utf-8") as f:
             json.dump(
@@ -488,6 +541,7 @@ def train_and_evaluate_models(
             f.write(verification_md_content)
         print(f"[+] Exported verification report: {verification_md_path}")
 
+        # Print quick executive summary table to terminal
         print("\n" + "=" * 75)
         print("SUMMARY TABLE: AGGREGATE MODEL COMPARISON (100 HELD-OUT TEST SAMPLES)")
         print("=" * 75)
@@ -500,6 +554,7 @@ def train_and_evaluate_models(
         return metrics_payload
 
     finally:
+        # Cleanly stop local Spark session if created inside this function
         if created_spark and spark is not None:
             spark.stop()
 
@@ -608,6 +663,7 @@ def generate_verification_markdown(
 
 
 def main():
+    """CLI entry point for training and evaluating models."""
     parser = argparse.ArgumentParser(
         description="Urbanix Day 5 MLlib Model Training and Evaluation Pipeline"
     )
@@ -622,6 +678,7 @@ def main():
 
     args = parser.parse_args()
 
+    # Launch model training and evaluation
     train_and_evaluate_models(
         train_path=args.train_path,
         test_path=args.test_path,

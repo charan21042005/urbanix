@@ -14,30 +14,55 @@ and performs independent, exhaustive assertions to mathematically prove:
 6. Absolute agreement with persisted split metadata (data/split_metadata.json).
 
 Returns exit code 0 if all assertions PASS; exit code 1 if any failure occurs.
+
+BEGINNER'S GUIDE TO ZERO-LEAKAGE TIME-SERIES SPLITTING:
+In classical tabular machine learning, random k-fold or train_test_split is acceptable.
+However, in time-series telemetry (traffic, weather, finance), random splitting causes
+SEVERE DATA LEAKAGE: the model memorizes future observations and predicts the past with artificial 99% accuracy.
+In a strictly chronological zero-leakage split:
+- We draw a single, permanent timestamp boundary (e.g. 80% mark on the timeline).
+- ALL training data (features and target outcomes) must occur strictly BEFORE the cutoff.
+- ALL test data must occur strictly AFTER the cutoff.
+- The latest event in the training set must be strictly earlier than the earliest event in the test set.
+This verifier mathematically proves that this condition holds on the physical Parquet files.
 """
 
-import os
-import sys
-import json
-import argparse
-from datetime import datetime, timezone
-from pathlib import Path
+# --- Standard Library Imports ---
+import os        # File existence and path handling
+import sys       # System arguments, runtime parameters, and exit codes
+import json      # JSON parsing to inspect split metadata
+import argparse  # Command-line interface definition
+from datetime import datetime, timezone  # Datetime manipulation and UTC timezone handling
+from pathlib import Path  # Object-oriented filesystem path manipulation
 
 # Explicitly bind Python executable for PySpark worker subprocesses on Windows
 os.environ["PYSPARK_PYTHON"] = sys.executable
 os.environ["PYSPARK_DRIVER_PYTHON"] = sys.executable
 
+# --- Apache PySpark SQL & ML Imports ---
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import col, min as spark_min, max as spark_max, count as spark_count
+# VectorUDT (User Defined Type) represents Spark MLlib feature vectors
 from pyspark.ml.linalg import VectorUDT
 
 
 def get_spark_session(app_name: str = "UrbanixVerifySplit") -> SparkSession:
-    """Creates a local SparkSession configured for deterministic UTC verification."""
+    """
+    Creates a local SparkSession configured for deterministic UTC verification.
+
+    Parameters:
+        app_name (str): Spark application name displayed in logs.
+
+    Returns:
+        SparkSession: Configured active session instance.
+    """
     return (
         SparkSession.builder.appName(app_name)
+        # Run locally with 2 worker threads
         .master("local[2]")
+        # Standardize timezone to UTC
         .config("spark.sql.session.timeZone", "UTC")
+        # Disable web UI port conflicts
         .config("spark.ui.enabled", "false")
         .getOrCreate()
     )
@@ -52,6 +77,15 @@ def verify_split(
     """
     Performs independent reload and verification of train and test datasets.
     Returns True if all assertions pass, False otherwise.
+
+    Parameters:
+        spark (SparkSession): Active local SparkSession instance.
+        train_path (str): Path to data/train Parquet directory.
+        test_path (str): Path to data/test Parquet directory.
+        metadata_path (str): Path to split_metadata.json.
+
+    Returns:
+        bool: True if zero leakage and complete dataset integrity is proven, False otherwise.
     """
     print("\n" + "=" * 70)
     print("URBANIX DAY 4: INDEPENDENT CHRONOLOGICAL SPLIT VERIFICATION")
@@ -60,6 +94,7 @@ def verify_split(
     print(f"[*] Reloading Test Parquet  : {test_path}")
     print(f"[*] Checking Split Metadata : {metadata_path}")
 
+    # Flag tracking cumulative verification state across all checks
     all_passed = True
 
     # 1. Check Directory Existence
@@ -71,6 +106,7 @@ def verify_split(
         print(f"[FAIL] Missing split metadata file: {metadata_path}")
         return False
 
+    # Load split metadata JSON
     with open(metadata_path, "r", encoding="utf-8") as f:
         meta = json.load(f)
 
@@ -113,7 +149,7 @@ def verify_split(
     print("[PASS] All required modeling and key columns present in both splits.")
 
     # 5. VectorAssembler & Feature Column Validation
-    # Check that 'features' is indeed VectorUDT
+    # Check that 'features' column is typed as Spark's VectorUDT
     train_schema = {field.name: field.dataType for field in train_df.schema.fields}
     if not isinstance(train_schema.get("features"), VectorUDT):
         print(f"[FAIL] 'features' column is not VectorUDT! Got: {train_schema.get('features')}")
@@ -121,7 +157,7 @@ def verify_split(
     else:
         print("[PASS] 'features' column is verified VectorUDT format.")
 
-    # Inspect first vector dimension
+    # Inspect first feature vector dimension
     first_vec = train_df.select("features").first()["features"]
     expected_dim = len(meta.get("feature_columns", []))
     if len(first_vec) != expected_dim:
@@ -130,7 +166,7 @@ def verify_split(
     else:
         print(f"[PASS] Vector dimension confirmed: {len(first_vec)} features.")
 
-    # Critical Anti-Leakage Check: Target NOT inside input features
+    # Critical Anti-Leakage Check: Target variable MUST NOT appear inside feature columns!
     if "next_avg_speed_kmph" in meta.get("feature_columns", []):
         print("[FAIL] CRITICAL LEAKAGE: Target variable 'next_avg_speed_kmph' found in feature_columns!")
         all_passed = False
@@ -141,19 +177,21 @@ def verify_split(
     train_keys = train_df.select("window_start", "zone_id")
     test_keys = test_df.select("window_start", "zone_id")
 
+    # Within training set, all (window_start, zone_id) keys must be unique
     if train_keys.distinct().count() != train_count:
         print("[FAIL] Duplicate feature keys detected within training partition!")
         all_passed = False
     else:
         print("[PASS] Zero duplicate keys within training partition.")
 
+    # Within testing set, all (window_start, zone_id) keys must be unique
     if test_keys.distinct().count() != test_count:
         print("[FAIL] Duplicate feature keys detected within testing partition!")
         all_passed = False
     else:
         print("[PASS] Zero duplicate keys within testing partition.")
 
-    # Check key overlap between train and test
+    # Check key overlap between train and test: intersection MUST be empty (0 rows)
     overlap_count = train_keys.intersect(test_keys).count()
     if overlap_count > 0:
         print(f"[FAIL] CRITICAL LEAKAGE: {overlap_count} overlapping sample keys between train and test!")
@@ -162,6 +200,7 @@ def verify_split(
         print("[PASS] Zero key overlap: Train and test samples are mutually disjoint.")
 
     # 7. Chronological Boundary & Temporal Leakage Validation
+    # Calculate earliest and latest timestamps in both splits
     train_bounds = train_df.selectExpr(
         "min(unix_timestamp(window_start)) as min_feat_epoch",
         "max(unix_timestamp(target_window_start)) as max_target_epoch",
@@ -227,7 +266,7 @@ def verify_split(
             print(f"[PASS] Testing feature UTC string ({test_bounds['min_feat_ts_utc']}) > cutoff ({cutoff_str}).")
 
     # 8. Check Finite Numerical Bounds
-    # Assert target is finite and positive
+    # Assert target speed is strictly positive and within physical highway limits
     invalid_targets = train_df.filter(
         col("next_avg_speed_kmph").isNull() | (col("next_avg_speed_kmph") <= 0.0) | (col("next_avg_speed_kmph") > 250.0)
     ).count()
@@ -248,6 +287,7 @@ def verify_split(
 
 
 def main():
+    """CLI execution entry point."""
     parser = argparse.ArgumentParser(
         description="Urbanix Day 4 Independent Split & Leakage Verifier"
     )

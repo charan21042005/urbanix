@@ -1,44 +1,59 @@
-"""
-Urbanix — Day 3 Streaming Pipeline Test Suite
-Deterministic unit and integration tests verifying:
-- Schema adherence to Day 2 producer payloads
-- Malformed JSON, missing fields, and timestamp validation
-- Physical measurement boundaries and invalid value filtering
-- Valid zero-value vs blackout handling
-- 5-minute window assignment at boundaries (12:00, 12:04:59, 12:05:00)
-- Aggregation semantics (speed, PM2.5, temperature, humidity, counts)
-- Zone metadata uniqueness, relational join cardinality, and unmatched zone handling
-- Absence of fabricated fields (no vehicle_count, no co2)
-- Independent stream processing (streams operate without temporal coupling)
-- Parquet schema and round-trip consistency
-"""
+# ==============================================================================
+# Urbanix — Day 3 Streaming Pipeline Test Suite
+# ==============================================================================
+# Deterministic unit and integration tests verifying:
+# - Schema adherence to Day 2 producer payloads
+# - Malformed JSON, missing fields, and timestamp validation
+# - Physical measurement boundaries and invalid value filtering
+# - Valid zero-value vs blackout handling
+# - 5-minute window assignment at boundaries (12:00, 12:04:59, 12:05:00)
+# - Aggregation semantics (speed, PM2.5, temperature, humidity, counts)
+# - Zone metadata uniqueness, relational join cardinality, and unmatched zone handling
+# - Absence of fabricated fields (no vehicle_count, no co2)
+# - Independent stream processing (streams operate without temporal coupling)
+# - Parquet schema and round-trip consistency
+#
+# Educational Overview for Beginners:
+# -----------------------------------
+# Why Test Streaming Pipelines with Deterministic Unit Tests?
+# Running a full Kafka broker and streaming cluster in unit tests is slow and brittle.
+# Instead, Apache Spark allows us to test stream transformation functions by passing
+# static DataFrames that mimic Kafka message schemas (e.g., binary key, binary value,
+# timestamp). If the transformation logic (parsing JSON, filtering invalid values,
+# windowing, joining) works deterministically on static data, it will work reliably
+# inside Spark Structured Streaming queries.
+# ==============================================================================
 
-import os
-import json
-import pytest
-from datetime import datetime
+# Standard system and testing libraries
+import os          # Operating system environment variables and path management
+import json        # Encoding and decoding test JSON strings
+import pytest      # Python testing framework providing fixtures and assertions
+from datetime import datetime  # Datetime representations for mock timestamps
 
+# PySpark SQL imports: Spark session, data types, and column expressions
 from pyspark.sql import SparkSession
 from pyspark.sql.types import (
-    StructType,
-    StructField,
-    StringType,
-    DoubleType,
-    IntegerType,
-    TimestampType,
+    StructType,       # Structured table row type
+    StructField,      # Single typed field definition
+    StringType,       # Text/string column type
+    DoubleType,       # Floating point decimal type
+    IntegerType,      # Integer column type
+    TimestampType,    # Timestamp type (date + time)
 )
 from pyspark.sql.functions import col, to_timestamp, date_format
 
-# Schema imports
+# Configure PySpark worker python to match the driver python executable
 import sys
 os.environ["PYSPARK_PYTHON"] = sys.executable
 os.environ["PYSPARK_DRIVER_PYTHON"] = sys.executable
 
+# Add the parent streaming directory to Python's import search path
 current_dir = os.path.dirname(os.path.abspath(__file__))
 streaming_dir = os.path.dirname(current_dir)
 if streaming_dir not in sys.path:
     sys.path.insert(0, streaming_dir)
 
+# Import schemas and transformation functions under test
 from schemas import (
     TRAFFIC_SCHEMA,
     AQI_SCHEMA,
@@ -62,28 +77,33 @@ from streaming_job import (
 def spark():
     """
     Creates an isolated local SparkSession for deterministic pipeline testing.
+    The 'scope=session' decorator ensures one SparkSession is shared across all
+    tests in this suite, saving significant startup overhead.
     """
     session = (
         SparkSession.builder.appName("Urbanix-Streaming-Tests")
-        .master("local[2]")
-        .config("spark.sql.session.timeZone", DEFAULT_TIMEZONE)
-        .config("spark.sql.shuffle.partitions", "2")
-        .config("spark.ui.enabled", "false")
+        .master("local[2]")                           # 2 local worker threads
+        .config("spark.sql.session.timeZone", DEFAULT_TIMEZONE)  # Force UTC timezone
+        .config("spark.sql.shuffle.partitions", "2")  # 2 shuffle partitions for fast local execution
+        .config("spark.ui.enabled", "false")          # Disable web UI
         .getOrCreate()
     )
     session.sparkContext.setLogLevel("ERROR")
     yield session
+    # Teardown: cleanly stop SparkSession after all tests finish
     session.stop()
 
 
 @pytest.fixture(scope="session")
 def sample_grid_zones(spark, tmp_path_factory):
     """
-    Creates a validated static grid_zones.csv lookup dataframe.
+    Creates a validated static grid_zones.csv lookup dataframe in a temporary folder.
+    This fixture provides the reference geographic table for spatial enrichment tests.
     """
     tmp_dir = tmp_path_factory.mktemp("zones")
     zones_file = os.path.join(tmp_dir, "grid_zones.csv")
     with open(zones_file, "w", encoding="utf-8") as f:
+        # Write standard CSV header and sample zone definitions
         f.write("zone_id,zone_name,mapping_type,mapping_description,min_lat,max_lat,min_lon,max_lon\n")
         f.write("zone_1,Downtown Core,Operational,Downtown LA Core,,,, \n")
         f.write("zone_2,San Fernando Valley,Operational,San Fernando Corridor,,,, \n")
@@ -102,6 +122,7 @@ def test_traffic_valid_json_parsing(spark):
     """
     Test 1: Confirms valid traffic JSON payload parses into expected columns and types.
     """
+    # Create valid synthetic traffic JSON payload
     valid_payload = json.dumps({
         "zone_id": "zone_1",
         "sensor_id": "773869",
@@ -111,14 +132,17 @@ def test_traffic_valid_json_parsing(spark):
         "unit": "km/h",
         "source": "METR-LA (Caltrans PeMS)"
     })
+    # Simulate a Kafka streaming batch containing binary key, binary value, and arrival timestamp
     raw_df = spark.createDataFrame(
         [(b"key1", valid_payload.encode("utf-8"), datetime(2026, 1, 1, 12, 0, 0))],
         ["key", "value", "timestamp"],
     )
 
+    # Execute traffic parser and validator
     valid_df = parse_and_validate_traffic(raw_df)
     rows = valid_df.collect()
 
+    # Assert exactly 1 row parsed successfully with intact values
     assert len(rows) == 1
     row = rows[0]
     assert row["zone_id"] == "zone_1"
@@ -126,6 +150,7 @@ def test_traffic_valid_json_parsing(spark):
     assert row["speed_kmph"] == 96.56
     assert row["speed_mph"] == 60.0
     assert row["unit"] == "km/h"
+    # Verify ISO timestamp converted into proper event_time timestamp
     event_time_str = valid_df.select(date_format("event_time", "yyyy-MM-dd HH:mm:ss").alias("et")).collect()[0]["et"]
     assert event_time_str == "2012-03-01 12:00:00"
 
@@ -203,12 +228,14 @@ def test_malformed_json_handling(spark):
     """
     Test 4: Malformed JSON strings are safely handled and do not crash the pipeline.
     """
+    # Non-parseable invalid JSON string
     corrupt_payload = "{ this is not valid json: 123"
     raw_df = spark.createDataFrame(
         [(b"key", corrupt_payload.encode("utf-8"), datetime(2026, 1, 1, 0, 0, 0))],
         ["key", "value", "timestamp"],
     )
 
+    # Verify that all 3 parsers safely drop corrupt payloads without throwing uncaught exceptions
     valid_traffic = parse_and_validate_traffic(raw_df)
     assert valid_traffic.count() == 0
 
@@ -271,6 +298,7 @@ def test_physical_boundary_filtering(spark):
     - AQI pm25 < 0 or > 1000 ug/m3
     - Weather temp < -50 or > 60 C; humidity < 0 or > 100%
     """
+    # Negative speeds or impossible highway velocities > 250 km/h
     traffic_unphysical = [
         json.dumps({"zone_id": "zone_1", "sensor_id": "s1", "timestamp": "2012-03-01T12:00:00", "speed_kmph": -10.0}),
         json.dumps({"zone_id": "zone_1", "sensor_id": "s2", "timestamp": "2012-03-01T12:00:00", "speed_kmph": 500.0}),
@@ -281,6 +309,7 @@ def test_physical_boundary_filtering(spark):
     )
     assert parse_and_validate_traffic(raw_traffic).count() == 0
 
+    # Negative particulate concentrations or values exceeding sensor saturation (> 1000 ug/m3)
     aqi_unphysical = [
         json.dumps({"zone_id": "zone_1", "station_id": "1", "timestamp": "2012-03-01T00:00:00", "pm25": -5.0}),
         json.dumps({"zone_id": "zone_1", "station_id": "2", "timestamp": "2012-03-01T00:00:00", "pm25": 1500.0}),
@@ -291,6 +320,7 @@ def test_physical_boundary_filtering(spark):
     )
     assert parse_and_validate_aqi(raw_aqi).count() == 0
 
+    # Non-terrestrial weather conditions
     weather_unphysical = [
         json.dumps({"zone_id": "zone_1", "timestamp": "2012-10-01T12:00:00", "temperature_c": -70.0, "humidity_pct": 50.0}),
         json.dumps({"zone_id": "zone_1", "timestamp": "2012-10-01T12:00:00", "temperature_c": 20.0, "humidity_pct": 120.0}),
@@ -309,6 +339,7 @@ def test_valid_zero_measurements_where_applicable(spark):
     - Weather temperature_c = 0.0 (freezing point) is physically valid and preserved.
     - Traffic speed = 0.0 represents unobserved/blackout in METR-LA and is excluded.
     """
+    # 0.0 PM2.5 represents exceptionally pristine air: valid
     aqi_zero = json.dumps({
         "zone_id": "zone_1",
         "station_id": "1103",
@@ -322,6 +353,7 @@ def test_valid_zero_measurements_where_applicable(spark):
     )
     assert parse_and_validate_aqi(raw_aqi).count() == 1
 
+    # 0.0 C is freezing point of water: valid
     weather_zero = json.dumps({
         "zone_id": "zone_1",
         "timestamp": "2012-10-01T12:00:00",
@@ -334,6 +366,7 @@ def test_valid_zero_measurements_where_applicable(spark):
     )
     assert parse_and_validate_weather(raw_weather).count() == 1
 
+    # 0.0 km/h in METR-LA loop detectors denotes zero data transmission / blackout: excluded
     traffic_zero = json.dumps({
         "zone_id": "zone_1",
         "sensor_id": "773869",
@@ -357,6 +390,9 @@ def test_five_minute_window_boundaries(spark, sample_grid_zones):
     - 12:00:00 -> window [12:00:00, 12:05:00)
     - 12:04:59 -> window [12:00:00, 12:05:00)
     - 12:05:00 -> window [12:05:00, 12:10:00)
+    
+    Tumbling windows in Spark are half-open intervals: [start, end),
+    meaning the start boundary is inclusive, and the end boundary is exclusive.
     """
     records = [
         {"zone_id": "zone_1", "sensor_id": "s1", "timestamp": "2012-03-01T12:00:00", "speed_kmph": 50.0},
@@ -375,13 +411,16 @@ def test_five_minute_window_boundaries(spark, sample_grid_zones):
     )
     results = aggregated.collect()
 
+    # The 3 records should be split into 2 distinct 5-minute windows
     assert len(results) == 2
 
+    # Window 1 (12:00 to 12:05) contains 12:00:00 and 12:04:59
     window_1 = [r for r in results if r["ws_str"] == "2012-03-01 12:00:00"][0]
     assert window_1["we_str"] == "2012-03-01 12:05:00"
     assert window_1["traffic_record_count"] == 2
-    assert window_1["avg_speed_kmph"] == 55.0
+    assert window_1["avg_speed_kmph"] == 55.0  # (50 + 60) / 2 = 55.0
 
+    # Window 2 (12:05 to 12:10) contains 12:05:00
     window_2 = [r for r in results if r["ws_str"] == "2012-03-01 12:05:00"][0]
     assert window_2["we_str"] == "2012-03-01 12:10:00"
     assert window_2["traffic_record_count"] == 1
@@ -464,11 +503,11 @@ def test_zone_metadata_uniqueness_and_join(spark, sample_grid_zones):
 
     assert len(agg) == 2
 
-    # Known zone has enriched metadata
+    # Known zone has enriched metadata attached
     zone_1_row = [r for r in agg if r["zone_id"] == "zone_1"][0]
     assert zone_1_row["zone_name"] == "Downtown Core"
 
-    # Unknown zone has null zone_name but record is preserved
+    # Unknown zone has null zone_name but record is preserved without data loss
     zone_99_row = [r for r in agg if r["zone_id"] == "zone_99"][0]
     assert zone_99_row["zone_name"] is None
     assert zone_99_row["traffic_record_count"] == 1
@@ -481,6 +520,7 @@ def test_zone_metadata_uniqueness_and_join(spark, sample_grid_zones):
 def test_absence_of_fabricated_fields(spark, sample_grid_zones):
     """
     Test 14: Confirms no synthetic vehicle_count or co2 columns exist in any feature table.
+    Urbanix strictly honors sensor truth without synthesizing imaginary columns.
     """
     # Check traffic columns
     t_df = aggregate_traffic(
@@ -551,6 +591,7 @@ def test_independent_stream_processing(spark, sample_grid_zones):
     t_agg = aggregate_traffic(parse_and_validate_traffic(t_raw), sample_grid_zones).withColumn("ws_str", date_format("window_start", "yyyy-MM-dd HH:mm:ss")).collect()
     w_agg = aggregate_weather(parse_and_validate_weather(w_raw), sample_grid_zones).withColumn("ws_str", date_format("window_start", "yyyy-MM-dd HH:mm:ss")).collect()
 
+    # Both streams process cleanly without dropping records due to disparate calendar dates
     assert len(t_agg) == 1
     assert t_agg[0]["ws_str"] == "2012-03-01 12:00:00"
 
@@ -576,8 +617,10 @@ def test_parquet_schema_and_roundtrip(spark, sample_grid_zones, tmp_path):
     agg_df = aggregate_traffic(parse_and_validate_traffic(raw_df), sample_grid_zones)
 
     parquet_dir = str(tmp_path / "traffic_parquet")
+    # Write to Parquet directory
     agg_df.write.parquet(parquet_dir)
 
+    # Reload from Parquet directory
     reloaded_df = spark.read.parquet(parquet_dir)
     assert reloaded_df.count() == 1
     row = reloaded_df.collect()[0]
