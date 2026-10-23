@@ -40,6 +40,7 @@
 import os
 import glob
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
 
@@ -71,6 +72,21 @@ FEATURE_TABLE_DIR: Path = REPO_ROOT / "data" / "feature_table" / "traffic"
 RECOMMENDED_ROUTES_DIR: Path = REPO_ROOT / "data" / "recommended_routes"
 INTERSECTIONS_CSV: Path = REPO_ROOT / "data" / "intersections.csv"
 ROADS_CSV: Path = REPO_ROOT / "data" / "roads.csv"
+
+# ------------------------------------------------------------------------------
+# 1b. Freshness Configuration Constants (Day 11 — Phase 3)
+# ------------------------------------------------------------------------------
+# Production data generation cadences:
+# - Routes are recomputed approximately every 60 seconds by GraphX RouteRecommender.
+# - Predictions are generated per 5-minute (300s) tumbling window by Spark Streaming.
+# - A data source is considered STALE when its age reaches or exceeds 3x its production cadence.
+ROUTES_UPDATE_INTERVAL_SECONDS: float = float(os.getenv("ROUTES_UPDATE_INTERVAL_SECONDS", "60.0"))
+PREDICTIONS_UPDATE_INTERVAL_SECONDS: float = float(os.getenv("PREDICTIONS_UPDATE_INTERVAL_SECONDS", "300.0"))
+STALE_THRESHOLD_MULTIPLIER: float = float(os.getenv("STALE_THRESHOLD_MULTIPLIER", "3.0"))
+
+# Thresholds where age >= threshold is marked STALE (multiplier applied exactly once):
+ROUTES_STALE_THRESHOLD_SECONDS: float = ROUTES_UPDATE_INTERVAL_SECONDS * STALE_THRESHOLD_MULTIPLIER  # 180.0s
+PREDICTIONS_STALE_THRESHOLD_SECONDS: float = PREDICTIONS_UPDATE_INTERVAL_SECONDS * STALE_THRESHOLD_MULTIPLIER  # 900.0s
 
 # ------------------------------------------------------------------------------
 # 2. FastAPI Application Initialization & Middleware
@@ -278,6 +294,124 @@ def determine_speed_status(speed_kmph: float) -> Dict[str, str]:
         return {"status": "CONGESTED", "color": "red", "hex": "#EF4444"}
 
 
+def evaluate_freshness(
+    timestamp_val: Any,
+    threshold_seconds: float,
+    reference_time: Optional[datetime] = None
+) -> Dict[str, Any]:
+    """
+    Evaluates whether a source data timestamp is fresh or stale against a configured threshold.
+    
+    Academic Engineering Contract & Timezone Rules (Day 11 — Phase 3):
+    1. Reference Time: Defaults to current wall-clock UTC time (datetime.now(timezone.utc)).
+       Accepts an explicit reference_time for deterministic, sleep-free unit testing.
+    2. Missing Timestamps: If timestamp_val is None, empty string, or pd.isna/NaT,
+       returns is_stale=True with status 'MISSING_TIMESTAMP'. Never silently marks missing data as fresh.
+    3. Malformed Timestamps: If timestamp_val cannot be parsed by pd.to_datetime,
+       returns is_stale=True with status 'MALFORMED_TIMESTAMP' without crashing the application.
+    4. Timezone Safety:
+       - Timezone-aware inputs are normalized to UTC.
+       - Timezone-naive inputs are explicitly localized to UTC per documented repository convention.
+    5. Future Timestamps / Clock Skew:
+       - If timestamp is in the future by more than 5.0 seconds (age_seconds < -5.0),
+         returns is_stale=True with status 'FUTURE_CLOCK_SKEW' to avoid negative age staying fresh indefinitely.
+       - If timestamp is slightly in the future (-5.0 <= age_seconds < 0.0), treats age as 0.0s.
+    6. Boundary Conditions:
+       - Age strictly below threshold (age_seconds < threshold_seconds): is_stale=False, status 'FRESH'.
+       - Age exactly equal to threshold (age_seconds == threshold_seconds): is_stale=True, status 'STALE'.
+       - Age above threshold (age_seconds > threshold_seconds): is_stale=True, status 'STALE'.
+       
+    Returns:
+        Dict[str, Any]: {
+            "computed_at": Optional[str],  # ISO 8601 UTC string (e.g. '2012-03-01T08:10:00Z') or None
+            "is_stale": bool,
+            "age_seconds": Optional[float],
+            "freshness_status": str  # 'FRESH', 'STALE', 'MISSING_TIMESTAMP', 'MALFORMED_TIMESTAMP', 'FUTURE_CLOCK_SKEW'
+        }
+    """
+    if timestamp_val is None or (isinstance(timestamp_val, str) and not timestamp_val.strip()):
+        return {
+            "computed_at": None,
+            "is_stale": True,
+            "age_seconds": None,
+            "freshness_status": "MISSING_TIMESTAMP"
+        }
+    
+    try:
+        if pd.isna(timestamp_val):
+            return {
+                "computed_at": None,
+                "is_stale": True,
+                "age_seconds": None,
+                "freshness_status": "MISSING_TIMESTAMP"
+            }
+    except Exception:
+        pass
+
+    if reference_time is None:
+        ref_utc = datetime.now(timezone.utc)
+    else:
+        if reference_time.tzinfo is None:
+            ref_utc = reference_time.replace(tzinfo=timezone.utc)
+        else:
+            ref_utc = reference_time.astimezone(timezone.utc)
+
+    try:
+        ts = pd.to_datetime(timestamp_val)
+        if pd.isna(ts):
+            return {
+                "computed_at": None,
+                "is_stale": True,
+                "age_seconds": None,
+                "freshness_status": "MISSING_TIMESTAMP"
+            }
+    except Exception:
+        return {
+            "computed_at": None,
+            "is_stale": True,
+            "age_seconds": None,
+            "freshness_status": "MALFORMED_TIMESTAMP"
+        }
+
+    try:
+        if ts.tzinfo is None:
+            ts_utc = ts.tz_localize("UTC")
+        else:
+            ts_utc = ts.tz_convert("UTC")
+        dt_utc = ts_utc.to_pydatetime()
+    except Exception:
+        return {
+            "computed_at": None,
+            "is_stale": True,
+            "age_seconds": None,
+            "freshness_status": "MALFORMED_TIMESTAMP"
+        }
+
+    iso_str = dt_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
+    diff_seconds = (ref_utc - dt_utc).total_seconds()
+
+    if diff_seconds < -5.0:
+        return {
+            "computed_at": iso_str,
+            "is_stale": True,
+            "age_seconds": round(diff_seconds, 2),
+            "freshness_status": "FUTURE_CLOCK_SKEW"
+        }
+    
+    if diff_seconds < 0.0:
+        diff_seconds = 0.0
+
+    is_stale = bool(diff_seconds >= threshold_seconds)
+    status = "STALE" if is_stale else "FRESH"
+
+    return {
+        "computed_at": iso_str,
+        "is_stale": is_stale,
+        "age_seconds": round(diff_seconds, 2),
+        "freshness_status": status
+    }
+
+
 def read_latest_predictions_dataframe() -> pd.DataFrame:
     """
     Reads the production Parquet feature table afresh from disk and deterministically
@@ -379,6 +513,10 @@ async def get_predictions() -> List[Dict[str, Any]]:
         zone_name = str(row["zone_name"]) if pd.notnull(row.get("zone_name")) else zone_id
         record_count = int(row["traffic_record_count"]) if pd.notnull(row.get("traffic_record_count")) else 0
 
+        # Freshness evaluation based on latest completed window_end (Day 11 — Phase 3)
+        win_end_val = row.get("window_end")
+        freshness = evaluate_freshness(win_end_val, PREDICTIONS_STALE_THRESHOLD_SECONDS)
+
         results.append({
             "zone_id": zone_id,
             "zone_name": zone_name,
@@ -391,7 +529,12 @@ async def get_predictions() -> List[Dict[str, Any]]:
             "latitude": coords["lat"],
             "longitude": coords["lon"],
             "predicted_pm25": None,  # Explicitly None (deferred environmental scope)
-            "model_provenance": str(row.get("prediction_model", "LinearRegression_MLlib"))
+            "model_provenance": str(row.get("prediction_model", "LinearRegression_MLlib")),
+            # Freshness Metadata
+            "computed_at": freshness["computed_at"],
+            "is_stale": freshness["is_stale"],
+            "age_seconds": freshness["age_seconds"],
+            "freshness_status": freshness["freshness_status"]
         })
 
     return sorted(results, key=lambda x: x["zone_id"])
@@ -422,6 +565,9 @@ async def get_route(destination_id: Optional[int] = None) -> List[Dict[str, Any]
         raw_path = row.get("path")
         path_list = [int(node) for node in raw_path] if hasattr(raw_path, "__iter__") else []
 
+        # Freshness evaluation based on genuine route snapshot computed_at (Day 11 — Phase 3)
+        route_freshness = evaluate_freshness(row.get("computed_at"), ROUTES_STALE_THRESHOLD_SECONDS)
+
         results.append({
             "origin_id": int(row["origin_id"]),
             "destination_id": int(row["destination_id"]),
@@ -430,9 +576,13 @@ async def get_route(destination_id: Optional[int] = None) -> List[Dict[str, Any]
             "total_travel_time_hours": float(row.get("total_travel_time_hours", 0.0)),
             "total_travel_time_minutes": float(row.get("total_travel_time_minutes", 0.0)),
             "is_reachable": bool(row.get("is_reachable", True)),
-            "computed_at": str(row.get("computed_at", "")),
+            "computed_at": route_freshness["computed_at"] or str(row.get("computed_at", "")),
             "prediction_zones_used": int(row.get("prediction_zones_used", 0)),
-            "fallback_applied": bool(row.get("fallback_applied", False))
+            "fallback_applied": bool(row.get("fallback_applied", False)),
+            # Freshness Metadata
+            "is_stale": route_freshness["is_stale"],
+            "age_seconds": route_freshness["age_seconds"],
+            "freshness_status": route_freshness["freshness_status"]
         })
 
     return results
@@ -560,17 +710,41 @@ async def get_map(destination_id: Optional[int] = 15) -> str:
                         dest_id = int(r_row.get("destination_id", destination_id))
                         path_str = str(r_row.get("path_formatted", f"{raw_path}"))
 
-                        route_tooltip = f"Recommended Route: Origin {orig_id} &rarr; Destination {dest_id} (ETA: {eta_min:.1f} min)"
+                        # Freshness evaluation for recommended route (Day 11 — Phase 3)
+                        route_freshness = evaluate_freshness(r_row.get("computed_at"), ROUTES_STALE_THRESHOLD_SECONDS)
+                        is_route_stale = route_freshness["is_stale"]
+                        route_age = route_freshness["age_seconds"]
+                        route_age_str = f"{route_age:.0f}s" if route_age is not None else "Unknown"
+
+                        if is_route_stale:
+                            route_color = "#6B7280"  # Gray PolyLine for stale route
+                            route_tooltip = f"STALE ROUTE: Recommended Route Origin {orig_id} &rarr; Destination {dest_id} (ETA: {eta_min:.1f} min | Age: {route_age_str})"
+                            stale_badge = f"""
+                            <div style="background: #FEE2E2; border: 1px solid #EF4444; color: #991B1B; padding: 4px 8px; border-radius: 4px; font-weight: 600; font-size: 11px; margin-bottom: 8px;">
+                                ⚠️ STALE ROUTE: Snapshot age ({route_age_str}) &ge; {ROUTES_STALE_THRESHOLD_SECONDS:.0f}s threshold
+                            </div>
+                            """
+                        else:
+                            route_color = "#2563EB"  # Royal blue for fresh route
+                            route_tooltip = f"Recommended Route: Origin {orig_id} &rarr; Destination {dest_id} (ETA: {eta_min:.1f} min | Fresh)"
+                            stale_badge = f"""
+                            <div style="background: #ECFDF5; border: 1px solid #10B981; color: #065F46; padding: 4px 8px; border-radius: 4px; font-weight: 600; font-size: 11px; margin-bottom: 8px;">
+                                ✅ FRESH ROUTE: GraphX optimal path (Age: {route_age_str})
+                            </div>
+                            """
+
                         route_popup_html = f"""
-                        <div style="font-family: Arial, sans-serif; min-width: 200px; padding: 4px;">
-                            <h4 style="margin: 0 0 6px 0; color: #1E40AF; border-bottom: 2px solid #2563EB; padding-bottom: 4px;">
-                                Recommended Route (Pregel SSSP)
+                        <div style="font-family: Arial, sans-serif; min-width: 220px; padding: 4px;">
+                            <h4 style="margin: 0 0 6px 0; color: {'#374151' if is_route_stale else '#1E40AF'}; border-bottom: 2px solid {route_color}; padding-bottom: 4px;">
+                                Recommended Route (Pregel SSSP) {'&mdash; <span style="color: #DC2626;">STALE</span>' if is_route_stale else ''}
                             </h4>
+                            {stale_badge}
                             <table style="width: 100%; font-size: 12px; line-height: 1.5;">
                                 <tr><td><b>Origin:</b></td><td>Node {orig_id} (Civic Center)</td></tr>
                                 <tr><td><b>Destination:</b></td><td>Node {dest_id}</td></tr>
                                 <tr><td><b>Path:</b></td><td><code>{path_str}</code></td></tr>
-                                <tr><td><b>Optimal ETA:</b></td><td><b style="color: #2563EB;">{eta_min:.2f} mins</b></td></tr>
+                                <tr><td><b>Optimal ETA:</b></td><td><b style="color: {route_color};">{eta_min:.2f} mins</b></td></tr>
+                                <tr><td><b>Freshness:</b></td><td><b>{'STALE' if is_route_stale else 'FRESH'}</b></td></tr>
                             </table>
                         </div>
                         """
@@ -578,11 +752,11 @@ async def get_map(destination_id: Optional[int] = 15) -> str:
                         # Draw PolyLine along ordered intersection coordinates
                         folium.PolyLine(
                             locations=route_coords,
-                            color="#2563EB",
+                            color=route_color,
                             weight=5,
                             opacity=0.85,
                             tooltip=route_tooltip,
-                            popup=folium.Popup(route_popup_html, max_width=280)
+                            popup=folium.Popup(route_popup_html, max_width=290)
                         ).add_to(m)
 
                         # Prominent Origin Indicator (Node 1)
@@ -601,10 +775,10 @@ async def get_map(destination_id: Optional[int] = 15) -> str:
                         folium.CircleMarker(
                             location=route_coords[-1],
                             radius=8,
-                            color="#991B1B",
+                            color="#991B1B" if not is_route_stale else "#4B5563",
                             weight=3,
                             fill=True,
-                            fill_color="#EF4444",
+                            fill_color="#EF4444" if not is_route_stale else "#6B7280",
                             fill_opacity=1.0,
                             tooltip=f"Route Destination: Node {dest_id} (ETA: {eta_min:.1f}m)"
                         ).add_to(m)
@@ -653,7 +827,11 @@ async def get_map(destination_id: Optional[int] = 15) -> str:
         </div>
         <div style="display: flex; align-items: center; margin-top: 4px;">
             <span style="height: 4px; width: 16px; background-color: #2563EB; display: inline-block; margin-right: 8px;"></span>
-            <span>Recommended Route (Pregel SSSP)</span>
+            <span>Recommended Route (Pregel SSSP) [Fresh]</span>
+        </div>
+        <div style="display: flex; align-items: center; margin-top: 4px;">
+            <span style="height: 4px; width: 16px; background-color: #6B7280; display: inline-block; margin-right: 8px;"></span>
+            <span>Recommended Route (Pregel SSSP) [STALE]</span>
         </div>
         <div style="display: flex; align-items: center; margin-top: 4px;">
             <span style="height: 8px; width: 8px; background-color: #3B82F6; border-radius: 50%; display: inline-block; margin-right: 10px; margin-left: 2px;"></span>

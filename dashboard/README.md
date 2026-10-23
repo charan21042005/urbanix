@@ -157,18 +157,18 @@ The FastAPI application in `main.py` exposes four primary routes:
 All automated tests for this subfolder are located in `dashboard/tests/`:
 
 ### 1. Pytest Unit & Contract Suite
-Run the 12 automated unit and regression tests:
+Run the 34 automated unit, freshness, and regression tests:
 ```powershell
 .\dashboard\venv\Scripts\python.exe -m pytest dashboard/tests -v
 ```
-*Tests cover path resolution, metadata filtering, centroid calculations, status thresholds, endpoint schemas, negative input handling (404/422), and mock-free compliance.*
+*Tests cover path resolution, metadata filtering, centroid calculations, status thresholds, endpoint schemas, negative input handling (404/422), route PolyLine coordinate ordering, boundary freshness helper evaluation, timezone normalization, clock-skew protection, and mock-free compliance.*
 
 ### 2. Live HTTP Smoke Test
 While Uvicorn is running, execute the standalone smoke verification script:
 ```powershell
 .\dashboard\venv\Scripts\python.exe dashboard\tests\smoke_test.py
 ```
-*Validates status codes and response bodies across all live endpoints on `http://127.0.0.1:8000`.*
+*Validates status codes, freshness metadata (`computed_at`, `is_stale`), and response bodies across all 8 live endpoint test cases on `http://127.0.0.1:8000`.*
 
 ---
 
@@ -176,8 +176,21 @@ While Uvicorn is running, execute the standalone smoke verification script:
 
 1. **Zero In-Memory Caching**: `main.py` reads Parquet datasets directly on every HTTP request. It does not cache DataFrames in memory, guaranteeing that new data written by upstream streaming jobs is immediately visible.
 2. **Parquet Checksum & Metadata Filtering**: Spark writes non-data commit markers (`_SUCCESS`) and checksum files (`.crc`) to output directories. Calling `pd.read_parquet()` directly on such directories fails with a PyArrow "magic bytes" error. `main.py` uses `get_parquet_files()` to filter for valid `*.parquet` files only.
-3. **Iframe Isolation**: Folium maps are loaded inside an `<iframe>` in `static/index.html`. Under W3C HTML5 security rules, script tags inserted via `innerHTML` do not execute. The iframe guarantees clean Leaflet script execution and automatic DOM/memory recycling on each 15-second refresh.
-4. **Resilient Polling**: The frontend uses `setInterval` set to 15,000 ms (15 seconds), equipped with a concurrency mutex (`isRefreshing`) to prevent overlapping requests and cache-busting query strings (`?t=Date.now()`).
+3. **Data Freshness & Staleness Thresholds (Day 11 — Phase 3)**:
+   - **Production Cadences**:
+     - Routes: `ROUTES_UPDATE_INTERVAL_SECONDS = 60` (GraphX SSSP recomputation ~1 minute).
+     - Predictions: `PREDICTIONS_UPDATE_INTERVAL_SECONDS = 300` (Spark 5-minute tumbling windows).
+     - Staleness Multiplier: `STALE_THRESHOLD_MULTIPLIER = 3`.
+   - **Configured Staleness Thresholds** (Multiplier applied exactly once):
+     - **Routes Staleness Threshold**: $60 \times 3 = 180$ seconds.
+     - **Predictions Staleness Threshold**: $300 \times 3 = 900$ seconds.
+   - **Browser Consumer Cadence**: The browser dashboard polls every 15 seconds (`REFRESH_INTERVAL_MS = 15000`), which is strictly decoupled from the upstream data production cadences.
+   - **Visual Indicators**:
+     - When route data is stale ($\ge 180$s), the Folium PolyLine turns gray (`#6B7280`) and displays a `STALE ROUTE` tooltip and popup alert.
+     - When prediction data is stale ($\ge 900$s), top-bar status badges and zone chips display visible `STALE` warnings.
+   - **Timezone Safety**: All timestamps are normalized to UTC ISO 8601 strings (`YYYY-MM-DDTHH:MM:SSZ`). Naive timestamps from Parquet are explicitly localized to UTC. Future timestamps exceeding skew tolerance ($-5.0$s) are flagged as `FUTURE_CLOCK_SKEW` and marked stale to prevent negative age from remaining fresh indefinitely.
+4. **Iframe Isolation**: Folium maps are loaded inside an `<iframe>` in `static/index.html`. Under W3C HTML5 security rules, script tags inserted via `innerHTML` do not execute. The iframe guarantees clean Leaflet script execution and automatic DOM/memory recycling on each 15-second refresh.
+5. **Resilient Polling & Graceful Degradation**: The frontend uses `setInterval` set to 15,000 ms (15 seconds), equipped with a concurrency mutex (`isRefreshing`) to prevent overlapping requests and cache-busting query strings (`?t=Date.now()`). If an API fails transiently, last-known values are preserved and marked `Cached (API Down)`.
 
 ---
 

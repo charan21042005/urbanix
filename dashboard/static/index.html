@@ -151,6 +151,44 @@
             border-color: var(--accent-blue);
         }
 
+        /* ---------------- Freshness Status Tags (Day 11 — Phase 3) ---------------- */
+        .status-tag {
+            font-size: 9px;
+            font-weight: 700;
+            padding: 2px 7px;
+            border-radius: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            white-space: nowrap;
+        }
+
+        .tag-fresh {
+            background: rgba(16, 185, 129, 0.15);
+            color: #34D399;
+            border: 1px solid rgba(16, 185, 129, 0.4);
+        }
+
+        .tag-stale {
+            background: rgba(245, 158, 11, 0.18);
+            color: #FBBF24;
+            border: 1px solid rgba(245, 158, 11, 0.5);
+        }
+
+        .tag-error {
+            background: rgba(239, 68, 68, 0.18);
+            color: #F87171;
+            border: 1px solid rgba(239, 68, 68, 0.5);
+        }
+
+        .tag-unknown {
+            background: rgba(100, 116, 139, 0.2);
+            color: #94A3B8;
+            border: 1px solid rgba(100, 116, 139, 0.3);
+        }
+
         /* ---------------- Metrics & Status Bar ---------------- */
         .metrics-bar {
             background-color: rgba(15, 23, 42, 0.95);
@@ -328,6 +366,10 @@
                 <div class="pulse-dot"></div>
                 <span>LIVE POLLING (15s)</span>
             </div>
+            <div style="display: flex; gap: 8px; align-items: center;">
+                <span id="badge-pred-header" class="status-tag tag-unknown" title="Predictions Freshness">Predictions: Checking...</span>
+                <span id="badge-route-header" class="status-tag tag-unknown" title="Route Freshness">Route: Checking...</span>
+            </div>
             <div class="clock-display" id="last-updated-clock">Updated: Initializing...</div>
             <button class="btn-refresh" id="manual-refresh-btn" onclick="triggerManualRefresh()">
                 <span>🔄</span> Refresh Now
@@ -357,13 +399,19 @@
         </div>
         <div class="metric-chip">
             <div>
-                <div class="chip-label">Pregel GraphX Routes</div>
+                <div class="chip-label" style="display: flex; justify-content: space-between; align-items: center; gap: 6px;">
+                    <span>Pregel GraphX Routes</span>
+                    <span id="chip-route-badge" class="status-tag tag-unknown">Checking</span>
+                </div>
                 <div class="chip-value" id="chip-routes">20 Optimal (100%)</div>
             </div>
         </div>
         <div class="metric-chip">
             <div>
-                <div class="chip-label">Latest Micro-batch</div>
+                <div class="chip-label" style="display: flex; justify-content: space-between; align-items: center; gap: 6px;">
+                    <span>Latest Micro-batch</span>
+                    <span id="chip-pred-badge" class="status-tag tag-unknown">Checking</span>
+                </div>
                 <div class="chip-value" id="chip-window" style="font-size: 11px;">--</div>
             </div>
         </div>
@@ -424,6 +472,20 @@
         let isRefreshing = false;           // Concurrency guard: prevents overlapping fetches
         let timerId = null;
 
+        // Last-known valid data states (Graceful degradation on transient API failure)
+        let lastKnownPredictions = null;
+        let lastKnownRoute = null;
+
+        /**
+         * Sets tag element styles and text deterministically.
+         */
+        function setStatusTag(elemId, status, label) {
+            const el = document.getElementById(elemId);
+            if (!el) return;
+            el.className = `status-tag tag-${status.toLowerCase()}`;
+            el.textContent = label;
+        }
+
         /**
          * Formats an ISO-8601 timestamp into a clean, human-readable local time string.
          */
@@ -438,68 +500,159 @@
         }
 
         /**
-         * Updates the metrics ribbon by fetching /api/predictions asynchronously.
+         * Renders predictions data onto the KPI ribbon and zone chips.
          */
-        async function updateMetrics() {
+        function renderPredictions(predictions, isCached) {
+            let totalSpeed = 0;
+            let latestWindow = '';
+            let anyStale = false;
+            const zoneChipsContainer = document.getElementById('zone-chips-container');
+            zoneChipsContainer.innerHTML = '';
+
+            predictions.forEach(p => {
+                totalSpeed += p.predicted_speed_kmph;
+                if (p.window_start && p.window_start > latestWindow) {
+                    latestWindow = p.window_start;
+                }
+                if (p.is_stale) {
+                    anyStale = true;
+                }
+
+                // Determine LOS pill style
+                let pillClass = 'pill-green';
+                if (p.status === 'MODERATE') pillClass = 'pill-orange';
+                if (p.status === 'CONGESTED') pillClass = 'pill-red';
+
+                // Create individual zone chip with stale indicator
+                const chip = document.createElement('div');
+                chip.className = 'metric-chip';
+                chip.style.minWidth = '145px';
+                chip.innerHTML = `
+                    <div>
+                        <div class="chip-label" style="display: flex; justify-content: space-between; align-items: center; gap: 4px;">
+                            <span>${p.zone_name.split(' ')[0]} (${p.zone_id})</span>
+                            ${p.is_stale ? '<span class="status-tag tag-stale" style="padding: 1px 4px; font-size: 8px;">STALE</span>' : ''}
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 6px;">
+                            <span class="chip-value">${p.predicted_speed_kmph.toFixed(1)}</span>
+                            <span class="zone-pill ${pillClass}">${p.status.substring(0, 4)}</span>
+                        </div>
+                    </div>
+                `;
+                zoneChipsContainer.appendChild(chip);
+            });
+
+            const avgSpeed = totalSpeed / predictions.length;
+            document.getElementById('chip-avg-speed').textContent = `${avgSpeed.toFixed(1)} km/h`;
+            document.getElementById('chip-zones').textContent = `${predictions.length} Active`;
+            if (latestWindow) {
+                document.getElementById('chip-window').textContent = latestWindow.substring(11, 19) + ' UTC';
+            }
+
+            if (!isCached) {
+                if (anyStale) {
+                    setStatusTag('badge-pred-header', 'stale', 'Predictions: Stale (2012 Replay)');
+                    setStatusTag('chip-pred-badge', 'stale', 'Stale');
+                } else {
+                    setStatusTag('badge-pred-header', 'fresh', 'Predictions: Fresh');
+                    setStatusTag('chip-pred-badge', 'fresh', 'Fresh');
+                }
+            }
+        }
+
+        /**
+         * Renders route status onto the KPI ribbon.
+         */
+        function renderRoute(route, isCached) {
+            const eta = route.total_travel_time_minutes;
+            document.getElementById('chip-routes').textContent = `Dest 15: ${eta.toFixed(1)}m`;
+
+            if (!isCached) {
+                if (route.is_stale) {
+                    setStatusTag('badge-route-header', 'stale', 'Route: Stale');
+                    setStatusTag('chip-route-badge', 'stale', 'Stale');
+                } else {
+                    setStatusTag('badge-route-header', 'fresh', 'Route: Fresh');
+                    setStatusTag('chip-route-badge', 'fresh', 'Fresh');
+                }
+            }
+        }
+
+        /**
+         * Updates predictions asynchronously from /api/predictions.
+         */
+        async function updatePredictions() {
             try {
-                // Read fresh predictions from FastAPI backend
                 const response = await fetch('/api/predictions');
                 if (!response.ok) {
-                    throw new Error(`API returned HTTP ${response.status}`);
+                    throw new Error(`HTTP ${response.status}`);
                 }
                 const predictions = await response.json();
 
                 if (!Array.isArray(predictions) || predictions.length === 0) {
+                    setStatusTag('badge-pred-header', 'unknown', 'Predictions: No Data');
+                    setStatusTag('chip-pred-badge', 'unknown', 'No Data');
                     return;
                 }
 
-                // Compute aggregate metrics
-                let totalSpeed = 0;
-                let latestWindow = '';
-                const zoneChipsContainer = document.getElementById('zone-chips-container');
-                zoneChipsContainer.innerHTML = '';
+                lastKnownPredictions = predictions;
+                renderPredictions(predictions, false);
+            } catch (err) {
+                console.warn('[Dashboard] Could not update predictions:', err);
+                if (lastKnownPredictions) {
+                    renderPredictions(lastKnownPredictions, true);
+                    setStatusTag('badge-pred-header', 'error', 'Predictions: Cached (API Down)');
+                    setStatusTag('chip-pred-badge', 'error', 'Cached');
+                } else {
+                    setStatusTag('badge-pred-header', 'error', 'Predictions: Unavailable');
+                    setStatusTag('chip-pred-badge', 'error', 'Error');
+                    showError(`Failed to fetch latest prediction metrics (${err.message})`);
+                }
+            }
+        }
 
-                predictions.forEach(p => {
-                    totalSpeed += p.predicted_speed_kmph;
-                    if (p.window_start && p.window_start > latestWindow) {
-                        latestWindow = p.window_start;
-                    }
+        /**
+         * Updates route recommendations asynchronously from /api/route?destination_id=15.
+         */
+        async function updateRouteStatus() {
+            try {
+                const response = await fetch('/api/route?destination_id=15');
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                const routes = await response.json();
 
-                    // Determine pill style
-                    let pillClass = 'pill-green';
-                    if (p.status === 'MODERATE') pillClass = 'pill-orange';
-                    if (p.status === 'CONGESTED') pillClass = 'pill-red';
-
-                    // Create individual zone chip
-                    const chip = document.createElement('div');
-                    chip.className = 'metric-chip';
-                    chip.style.minWidth = '140px';
-                    chip.innerHTML = `
-                        <div>
-                            <div class="chip-label">${p.zone_name.split(' ')[0]} (${p.zone_id})</div>
-                            <div style="display: flex; align-items: center; gap: 6px;">
-                                <span class="chip-value">${p.predicted_speed_kmph.toFixed(1)}</span>
-                                <span class="zone-pill ${pillClass}">${p.status.substring(0, 4)}</span>
-                            </div>
-                        </div>
-                    `;
-                    zoneChipsContainer.appendChild(chip);
-                });
-
-                const avgSpeed = totalSpeed / predictions.length;
-                document.getElementById('chip-avg-speed').textContent = `${avgSpeed.toFixed(1)} km/h`;
-                document.getElementById('chip-zones').textContent = `${predictions.length} Active`;
-                if (latestWindow) {
-                    document.getElementById('chip-window').textContent = latestWindow.substring(11, 19) + ' UTC';
+                if (!Array.isArray(routes) || routes.length === 0) {
+                    setStatusTag('badge-route-header', 'unknown', 'Route: No Data');
+                    setStatusTag('chip-route-badge', 'unknown', 'No Data');
+                    return;
                 }
 
-                // Clear any active error banner on success
-                dismissError();
-
+                const r = routes[0];
+                lastKnownRoute = r;
+                renderRoute(r, false);
             } catch (err) {
-                console.warn('[Dashboard] Could not update metrics:', err);
-                showError(`Failed to fetch latest prediction metrics (${err.message})`);
+                console.warn('[Dashboard] Could not update route status:', err);
+                if (lastKnownRoute) {
+                    renderRoute(lastKnownRoute, true);
+                    setStatusTag('badge-route-header', 'error', 'Route: Cached (API Down)');
+                    setStatusTag('chip-route-badge', 'error', 'Cached');
+                } else {
+                    setStatusTag('badge-route-header', 'error', 'Route: Unavailable');
+                    setStatusTag('chip-route-badge', 'error', 'Error');
+                }
             }
+        }
+
+        /**
+         * Updates both prediction metrics and route status independently.
+         */
+        async function updateMetrics() {
+            await Promise.allSettled([
+                updatePredictions(),
+                updateRouteStatus()
+            ]);
+            dismissError();
         }
 
         /**

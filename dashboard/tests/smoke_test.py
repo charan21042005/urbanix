@@ -42,7 +42,9 @@ def run_smoke_test():
         data = r_pred.json()
         print(f"       Records returned: {len(data)}")
         for rec in data:
-            print(f"       Zone: {rec['zone_id']}, Window: {rec['window_start']}, Speed: {rec['predicted_speed_kmph']} km/h, PM2.5: {rec['predicted_pm25']}")
+            print(f"       Zone: {rec['zone_id']}, Speed: {rec['predicted_speed_kmph']} km/h, Computed: {rec.get('computed_at')}, Stale: {rec.get('is_stale')}")
+            assert "is_stale" in rec, "Missing is_stale in prediction"
+            assert "computed_at" in rec, "Missing computed_at in prediction"
         assert r_pred.status_code == 200
         assert len(data) == 5
     except Exception as e:
@@ -56,7 +58,9 @@ def run_smoke_test():
         routes = r_routes.json()
         print(f"       Total routes returned: {len(routes)}")
         sample = routes[0]
-        print(f"       Sample route: Origin={sample['origin_id']} -> Dest={sample['destination_id']}, ETA={sample['total_travel_time_minutes']:.2f} min, Path={sample['path']}")
+        print(f"       Sample route: Origin={sample['origin_id']} -> Dest={sample['destination_id']}, ETA={sample['total_travel_time_minutes']:.2f} min, Stale={sample.get('is_stale')}")
+        assert "is_stale" in sample, "Missing is_stale in route"
+        assert "computed_at" in sample, "Missing computed_at in route"
         assert r_routes.status_code == 200
         assert len(routes) == 20
     except Exception as e:
@@ -70,7 +74,7 @@ def run_smoke_test():
         dest_routes = r_dest.json()
         assert len(dest_routes) == 1
         d15 = dest_routes[0]
-        print(f"       Destination 15 route: Origin={d15['origin_id']} -> Dest={d15['destination_id']}, ETA={d15['total_travel_time_minutes']:.2f} min, Path={d15['path']}")
+        print(f"       Destination 15 route: Origin={d15['origin_id']} -> Dest={d15['destination_id']}, ETA={d15['total_travel_time_minutes']:.2f} min, Stale={d15.get('is_stale')}")
         assert r_dest.status_code == 200
         assert d15["destination_id"] == 15
         assert d15["origin_id"] == 1
@@ -99,12 +103,22 @@ def run_smoke_test():
         assert r_map_15.status_code == 200
         assert "Node 15" in r_map_15.text
         assert "19.02" in r_map_15.text or "19.0" in r_map_15.text
+        assert "STALE ROUTE" in r_map_15.text or "FRESH ROUTE" in r_map_15.text
     except Exception as e:
         print(f"[FAIL] GET /api/map?destination_id=15 failed: {e}")
         return False
 
+    # 8. GET /api/route?destination_id=invalid_id (Type Validation Contract)
+    try:
+        r_inv = requests.get(f"{BASE_URL}/api/route?destination_id=invalid_id", timeout=5)
+        print(f"[PASS] GET /api/route?destination_id=invalid_id -> HTTP {r_inv.status_code} (Validation)")
+        assert r_inv.status_code == 422
+    except Exception as e:
+        print(f"[FAIL] GET /api/route?destination_id=invalid_id failed: {e}")
+        return False
+
     print("=" * 60)
-    print("ALL 7 LIVE ENDPOINT SMOKE TESTS PASSED!")
+    print("ALL 8 LIVE ENDPOINT SMOKE TESTS PASSED!")
     print("=" * 60)
     return True
 

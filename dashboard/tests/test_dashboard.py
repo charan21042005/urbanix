@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 DASHBOARD_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(DASHBOARD_DIR))
 
+from datetime import datetime, timezone, timedelta
 import main
 from main import (
     app,
@@ -20,6 +21,12 @@ from main import (
     load_intersections_registry,
     build_route_coordinates,
     determine_speed_status,
+    evaluate_freshness,
+    ROUTES_UPDATE_INTERVAL_SECONDS,
+    PREDICTIONS_UPDATE_INTERVAL_SECONDS,
+    STALE_THRESHOLD_MULTIPLIER,
+    ROUTES_STALE_THRESHOLD_SECONDS,
+    PREDICTIONS_STALE_THRESHOLD_SECONDS,
     REPO_ROOT,
     FEATURE_TABLE_DIR,
     RECOMMENDED_ROUTES_DIR,
@@ -324,4 +331,196 @@ def test_get_map_graceful_on_nonexistent_destination():
     html = response.text
     assert "Urbanix Traffic Legend" in html
     assert "Free Flowing" in html
+
+
+# ------------------------------------------------------------------------------
+# 5. Freshness Evaluation & Timestamp Semantics Tests (Day 11 — Phase 3)
+# ------------------------------------------------------------------------------
+
+def test_freshness_helper_below_threshold():
+    """Verify age strictly below threshold is marked fresh (is_stale=False)."""
+    ref_time = datetime(2026, 10, 23, 12, 0, 0, tzinfo=timezone.utc)
+    ts = datetime(2026, 10, 23, 11, 59, 0, tzinfo=timezone.utc)  # 60s old vs 180s threshold
+    result = evaluate_freshness(ts, threshold_seconds=180.0, reference_time=ref_time)
+    assert result["is_stale"] is False
+    assert result["freshness_status"] == "FRESH"
+    assert result["age_seconds"] == 60.0
+    assert result["computed_at"] == "2026-10-23T11:59:00Z"
+
+
+def test_freshness_helper_exact_threshold():
+    """Boundary Condition: Age exactly equal to threshold is marked stale (is_stale=True)."""
+    ref_time = datetime(2026, 10, 23, 12, 0, 0, tzinfo=timezone.utc)
+    ts = datetime(2026, 10, 23, 11, 57, 0, tzinfo=timezone.utc)  # Exactly 180s old
+    result = evaluate_freshness(ts, threshold_seconds=180.0, reference_time=ref_time)
+    assert result["is_stale"] is True
+    assert result["freshness_status"] == "STALE"
+    assert result["age_seconds"] == 180.0
+
+
+def test_freshness_helper_above_threshold():
+    """Boundary Condition: Age strictly greater than threshold is marked stale (is_stale=True)."""
+    ref_time = datetime(2026, 10, 23, 12, 0, 0, tzinfo=timezone.utc)
+    ts = datetime(2026, 10, 23, 11, 56, 59, tzinfo=timezone.utc)  # 181s old
+    result = evaluate_freshness(ts, threshold_seconds=180.0, reference_time=ref_time)
+    assert result["is_stale"] is True
+    assert result["freshness_status"] == "STALE"
+    assert result["age_seconds"] == 181.0
+
+
+def test_freshness_helper_missing_timestamp():
+    """Verify missing, empty, or NaT timestamps are safely flagged stale, not fresh."""
+    assert evaluate_freshness(None, 180.0)["is_stale"] is True
+    assert evaluate_freshness("", 180.0)["is_stale"] is True
+    assert evaluate_freshness("   ", 180.0)["is_stale"] is True
+    assert evaluate_freshness(None, 180.0)["computed_at"] is None
+    assert evaluate_freshness(None, 180.0)["freshness_status"] == "MISSING_TIMESTAMP"
+
+
+def test_freshness_helper_malformed_timestamp():
+    """Verify malformed timestamps do not crash and are flagged stale."""
+    result = evaluate_freshness("invalid-date-format-xyz", 180.0)
+    assert result["is_stale"] is True
+    assert result["computed_at"] is None
+    assert result["freshness_status"] == "MALFORMED_TIMESTAMP"
+
+
+def test_freshness_helper_timezone_aware_normalization():
+    """Verify timezone-aware timestamps (+05:30) are correctly normalized to UTC."""
+    ref_time = datetime(2026, 10, 23, 12, 0, 0, tzinfo=timezone.utc)
+    aware_str = "2026-10-23T17:00:00+05:30"  # 11:30:00 UTC (1800s old)
+    result = evaluate_freshness(aware_str, threshold_seconds=3600.0, reference_time=ref_time)
+    assert result["computed_at"] == "2026-10-23T11:30:00Z"
+    assert result["age_seconds"] == 1800.0
+    assert result["is_stale"] is False
+
+
+def test_freshness_helper_naive_interpreted_as_utc():
+    """Verify timezone-naive timestamps from Parquet are explicitly localized to UTC."""
+    ref_time = datetime(2026, 10, 23, 12, 0, 0, tzinfo=timezone.utc)
+    naive_str = "2026-10-23 11:58:00"  # 120s old
+    result = evaluate_freshness(naive_str, threshold_seconds=180.0, reference_time=ref_time)
+    assert result["computed_at"] == "2026-10-23T11:58:00Z"
+    assert result["age_seconds"] == 120.0
+    assert result["is_stale"] is False
+
+
+def test_freshness_helper_future_timestamp_clock_skew():
+    """Verify future timestamps beyond skew tolerance (-5.0s) are flagged as FUTURE_CLOCK_SKEW and stale."""
+    ref_time = datetime(2026, 10, 23, 12, 0, 0, tzinfo=timezone.utc)
+    future_ts = datetime(2026, 10, 23, 12, 5, 0, tzinfo=timezone.utc)  # 5 minutes in future
+    result = evaluate_freshness(future_ts, threshold_seconds=180.0, reference_time=ref_time)
+    assert result["is_stale"] is True
+    assert result["freshness_status"] == "FUTURE_CLOCK_SKEW"
+    assert result["age_seconds"] == -300.0
+
+
+def test_configured_constants():
+    """Verify configured update intervals and threshold multiplier."""
+    assert ROUTES_UPDATE_INTERVAL_SECONDS == 60.0
+    assert PREDICTIONS_UPDATE_INTERVAL_SECONDS == 300.0
+    assert STALE_THRESHOLD_MULTIPLIER == 3.0
+    assert ROUTES_STALE_THRESHOLD_SECONDS == 180.0
+    assert PREDICTIONS_STALE_THRESHOLD_SECONDS == 900.0
+
+
+def test_predictions_api_freshness_metadata():
+    """Verify /api/predictions includes computed_at, is_stale, and age_seconds derived from window_end."""
+    response = client.get("/api/predictions")
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data) == 5
+
+    for item in data:
+        assert "computed_at" in item
+        assert "is_stale" in item
+        assert "age_seconds" in item
+        assert "freshness_status" in item
+        assert isinstance(item["is_stale"], bool)
+        # Because baseline data is from 2012, against current system clock it must be stale
+        assert item["is_stale"] is True
+        assert item["freshness_status"] == "STALE"
+        assert item["computed_at"].startswith("2012-03-01T08:10:00")
+        assert item["age_seconds"] > 900.0
+        # Check backward-compatibility: predicted_pm25 is still None
+        assert item["predicted_pm25"] is None
+
+
+def test_route_api_freshness_metadata():
+    """Verify /api/route includes computed_at, is_stale, and age_seconds derived from route snapshot."""
+    response = client.get("/api/route?destination_id=15")
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data) == 1
+    r = data[0]
+
+    assert "computed_at" in r
+    assert "is_stale" in r
+    assert "age_seconds" in r
+    assert "freshness_status" in r
+    assert isinstance(r["is_stale"], bool)
+    assert r["computed_at"] != ""
+    assert r["is_stale"] is True  # Snapshot from 2026-10-22 is > 180s old
+    assert r["age_seconds"] > 180.0
+
+
+def test_route_api_invalid_query_type_returns_422():
+    """Verify invalid query parameter type (e.g. string for int destination_id) returns HTTP 422."""
+    response = client.get("/api/route?destination_id=invalid_id")
+    assert response.status_code == 422
+
+
+def test_map_stale_route_styling_and_tooltip():
+    """Verify GET /api/map?destination_id=15 renders gray PolyLine (#6B7280) and STALE ROUTE indicators."""
+    response = client.get("/api/map?destination_id=15")
+    assert response.status_code == 200
+    html = response.text
+
+    assert "STALE ROUTE" in html
+    assert "#6B7280" in html
+    assert "Recommended Route (Pregel SSSP) [STALE]" in html
+
+
+def test_map_fresh_route_styling_with_injected_snapshot(monkeypatch):
+    """
+    Verify GET /api/map renders royal blue PolyLine (#2563EB) when route snapshot is fresh.
+    Uses monkeypatch to inject fresh computed_at without mutating production datasets.
+    """
+    import main as main_module
+    orig_read = main_module.read_recommended_routes_dataframe
+    
+    def mock_fresh_routes():
+        df = orig_read().copy()
+        now_utc = datetime.now(timezone.utc)
+        df["computed_at"] = now_utc  # Fresh timestamp (0s old)
+        return df
+
+    monkeypatch.setattr(main_module, "read_recommended_routes_dataframe", mock_fresh_routes)
+
+    response = client.get("/api/map?destination_id=15")
+    assert response.status_code == 200
+    html = response.text
+
+    assert "#2563EB" in html
+    assert "FRESH ROUTE" in html
+    assert "Recommended Route (Pregel SSSP) [Fresh]" in html
+
+
+def test_frontend_stale_indicators_and_polling_script():
+    """Verify GET / serves HTML with status badges, 15s interval, and concurrency guard."""
+    response = client.get("/")
+    assert response.status_code == 200
+    html = response.text
+
+    # Freshness badges
+    assert "badge-pred-header" in html
+    assert "badge-route-header" in html
+    assert "chip-pred-badge" in html
+    assert "chip-route-badge" in html
+
+    # Polling cadence and concurrency guard
+    assert "REFRESH_INTERVAL_MS = 15000" in html
+    assert "isRefreshing" in html
+    assert "updateRouteStatus" in html
+
 
