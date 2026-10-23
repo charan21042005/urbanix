@@ -22,6 +22,7 @@ from main import (
     build_route_coordinates,
     determine_speed_status,
     evaluate_freshness,
+    ErrorCode,
     ROUTES_UPDATE_INTERVAL_SECONDS,
     PREDICTIONS_UPDATE_INTERVAL_SECONDS,
     STALE_THRESHOLD_MULTIPLIER,
@@ -32,6 +33,7 @@ from main import (
     RECOMMENDED_ROUTES_DIR,
     INTERSECTIONS_CSV,
 )
+import pandas as pd
 
 client = TestClient(app)
 
@@ -522,5 +524,238 @@ def test_frontend_stale_indicators_and_polling_script():
     assert "REFRESH_INTERVAL_MS = 15000" in html
     assert "isRefreshing" in html
     assert "updateRouteStatus" in html
+
+
+# ------------------------------------------------------------------------------
+# 8. Phase 4: Graceful Degradation & Structured Error Taxonomy Tests
+# ------------------------------------------------------------------------------
+
+def test_predictions_missing_directory_returns_503(monkeypatch, tmp_path):
+    """
+    Verify GET /api/predictions returns structured 503 DATA_SOURCE_UNAVAILABLE
+    when feature-table directory is missing, with zero local path leakage.
+    """
+    missing_dir = tmp_path / "missing_feature_table"
+    monkeypatch.setattr(main, "FEATURE_TABLE_DIR", missing_dir)
+
+    response = client.get("/api/predictions")
+    assert response.status_code == 503
+    data = response.json()
+
+    assert data["error"] == ErrorCode.DATA_SOURCE_UNAVAILABLE.value
+    assert "temporarily unavailable" in data["message"]
+    # Path privacy verification: no absolute path or OS directories leaked
+    assert str(missing_dir) not in str(data)
+    assert "tmp_path" not in str(data).lower()
+    assert "\\" not in data["message"] and "/" not in data["message"]
+
+
+def test_predictions_empty_table_returns_200_empty_list(monkeypatch, tmp_path):
+    """
+    Verify GET /api/predictions returns HTTP 200 with [] when feature table exists
+    but has zero prediction rows (genuine empty state).
+    """
+    empty_df = pd.DataFrame(columns=[
+        "zone_id", "window_start", "window_end",
+        "predicted_speed_kmh", "historical_avg_speed_kmh", "computed_at"
+    ])
+    empty_parquet = tmp_path / "empty_pred.parquet"
+    empty_df.to_parquet(empty_parquet)
+    monkeypatch.setattr(main, "FEATURE_TABLE_DIR", tmp_path)
+
+    response = client.get("/api/predictions")
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+def test_predictions_corrupted_parquet_returns_500(monkeypatch, tmp_path):
+    """
+    Verify GET /api/predictions returns structured 500 DATA_PARSING_ERROR
+    when parquet files are malformed/corrupted, without leaking stack traces.
+    """
+    bad_file = tmp_path / "corrupt.parquet"
+    bad_file.write_bytes(b"CORRUPTED_NON_PARQUET_BYTE_STREAM_123456789")
+    monkeypatch.setattr(main, "FEATURE_TABLE_DIR", tmp_path)
+
+    response = client.get("/api/predictions")
+    assert response.status_code == 500
+    data = response.json()
+
+    assert data["error"] == ErrorCode.DATA_PARSING_ERROR.value
+    assert "Failed to parse" in data["message"]
+    # Verify no raw traceback or internal file paths leaked
+    assert "Traceback" not in str(data)
+    assert str(bad_file) not in str(data)
+
+
+def test_predictions_invalid_schema_returns_500(monkeypatch, tmp_path):
+    """
+    Verify GET /api/predictions returns structured 500 INVALID_DATA_SCHEMA
+    when required schema columns (e.g. zone_id) are missing.
+    """
+    invalid_df = pd.DataFrame({"wrong_col": [1, 2, 3]})
+    invalid_parquet = tmp_path / "invalid_schema.parquet"
+    invalid_df.to_parquet(invalid_parquet)
+    monkeypatch.setattr(main, "FEATURE_TABLE_DIR", tmp_path)
+
+    response = client.get("/api/predictions")
+    assert response.status_code == 500
+    data = response.json()
+
+    assert data["error"] == ErrorCode.INVALID_DATA_SCHEMA.value
+    assert "invalid" in data["message"].lower() or "missing" in data["message"].lower()
+
+
+def test_route_missing_directory_returns_503(monkeypatch, tmp_path):
+    """
+    Verify GET /api/route returns structured 503 ROUTES_UNAVAILABLE
+    when recommended-routes directory is missing, with zero local path leakage.
+    """
+    missing_dir = tmp_path / "missing_routes"
+    monkeypatch.setattr(main, "RECOMMENDED_ROUTES_DIR", missing_dir)
+
+    response = client.get("/api/route")
+    assert response.status_code == 503
+    data = response.json()
+
+    assert data["error"] == ErrorCode.ROUTES_UNAVAILABLE.value
+    assert "temporarily unavailable" in data["message"]
+    assert str(missing_dir) not in str(data)
+
+
+def test_route_empty_table_returns_200_empty_list_and_404_on_query(monkeypatch, tmp_path):
+    """
+    Verify GET /api/route returns HTTP 200 with [] when routes table has 0 rows,
+    and returns HTTP 404 DESTINATION_NOT_FOUND when requesting a specific destination.
+    """
+    empty_df = pd.DataFrame(columns=[
+        "origin_id", "destination_id", "path", "path_formatted",
+        "total_travel_time_hours", "total_travel_time_minutes",
+        "is_reachable", "computed_at", "prediction_zones_used", "fallback_applied"
+    ])
+    empty_parquet = tmp_path / "empty_routes.parquet"
+    empty_df.to_parquet(empty_parquet)
+    monkeypatch.setattr(main, "RECOMMENDED_ROUTES_DIR", tmp_path)
+
+    # All routes -> 200 with []
+    all_res = client.get("/api/route")
+    assert all_res.status_code == 200
+    assert all_res.json() == []
+
+    # Specific destination query -> 404
+    dest_res = client.get("/api/route?destination_id=15")
+    assert dest_res.status_code == 404
+    data = dest_res.json()
+    assert data["error"] == ErrorCode.DESTINATION_NOT_FOUND.value
+
+
+def test_route_corrupted_parquet_returns_500(monkeypatch, tmp_path):
+    """
+    Verify GET /api/route returns structured 500 DATA_PARSING_ERROR
+    when route parquet is corrupted.
+    """
+    bad_file = tmp_path / "corrupt_route.parquet"
+    bad_file.write_bytes(b"CORRUPTED_ROUTE_DATA_BYTE_HEADER")
+    monkeypatch.setattr(main, "RECOMMENDED_ROUTES_DIR", tmp_path)
+
+    response = client.get("/api/route")
+    assert response.status_code == 500
+    data = response.json()
+
+    assert data["error"] == ErrorCode.DATA_PARSING_ERROR.value
+    assert "Traceback" not in str(data)
+
+
+def test_route_invalid_schema_returns_500(monkeypatch, tmp_path):
+    """
+    Verify GET /api/route returns structured 500 INVALID_DATA_SCHEMA
+    when route parquet is missing required columns.
+    """
+    bad_df = pd.DataFrame({"dummy_field": ["a", "b"]})
+    bad_parquet = tmp_path / "bad_route_schema.parquet"
+    bad_df.to_parquet(bad_parquet)
+    monkeypatch.setattr(main, "RECOMMENDED_ROUTES_DIR", tmp_path)
+
+    response = client.get("/api/route")
+    assert response.status_code == 500
+    data = response.json()
+
+    assert data["error"] == ErrorCode.INVALID_DATA_SCHEMA.value
+
+
+def test_route_invalid_query_type_returns_422():
+    """Verify GET /api/route with non-integer query parameter returns 422 with structured envelope."""
+    response = client.get("/api/route?destination_id=not_an_int")
+    assert response.status_code == 422
+    data = response.json()
+    assert data["error"] == ErrorCode.UNPROCESSABLE_ENTITY.value
+
+
+def test_map_fallback_when_route_directory_missing(monkeypatch, tmp_path):
+    """
+    Verify GET /api/map safely falls back to base geographic map (HTTP 200)
+    when route directory is missing, updating the legend to reflect route unavailability.
+    """
+    missing_dir = tmp_path / "missing_routes_for_map"
+    monkeypatch.setattr(main, "RECOMMENDED_ROUTES_DIR", missing_dir)
+
+    response = client.get("/api/map?destination_id=15")
+    assert response.status_code == 200
+    html = response.text
+    # Map renders base elements
+    assert "folium" in html.lower() or "leaflet" in html.lower()
+    # Legend explicitly indicates Route Unavailable
+    assert "Route Unavailable" in html
+
+
+def test_map_fallback_when_intersections_missing(monkeypatch, tmp_path):
+    """
+    Verify GET /api/map safely falls back to base map when intersections.csv is missing.
+    """
+    missing_csv = tmp_path / "missing_intersections.csv"
+    monkeypatch.setattr(main, "INTERSECTIONS_CSV", missing_csv)
+
+    response = client.get("/api/map?destination_id=15")
+    assert response.status_code == 200
+    html = response.text
+    assert "folium" in html.lower() or "leaflet" in html.lower()
+    assert "Route Unavailable" in html
+
+
+def test_unexpected_internal_exception_sanitized_500(monkeypatch):
+    """
+    Verify unhandled internal exceptions return structured 500 without leaking stack traces or internal details.
+    """
+    def mock_crash():
+        raise RuntimeError("CRITICAL_INTERNAL_DATABASE_LEAK_SECRET_12345")
+
+    monkeypatch.setattr(main, "read_latest_predictions_dataframe", mock_crash)
+
+    # Note: TestClient with raise_server_exceptions=False verifies the Starlette/FastAPI 500 handler
+    safe_client = TestClient(app, raise_server_exceptions=False)
+    response = safe_client.get("/api/predictions")
+    assert response.status_code == 500
+    data = response.json()
+
+    assert data["error"] == ErrorCode.INTERNAL_SERVER_ERROR.value
+    assert "internal server error" in data["message"].lower()
+    # Leak prevention: secret error text must NEVER be in response
+    assert "CRITICAL_INTERNAL_DATABASE_LEAK_SECRET_12345" not in str(data)
+    assert "Traceback" not in str(data)
+
+
+def test_frontend_graceful_degradation_strings():
+    """Verify GET / serves frontend with empty-state, cached-state, and fallback resilience logic."""
+    response = client.get("/")
+    assert response.status_code == 200
+    html = response.text
+
+    assert "Cached (API Down)" in html
+    assert "Predictions: Unavailable" in html
+    assert "Route: Unavailable" in html
+    assert "No data yet. Awaiting sensor micro-batch streaming output..." in html
+    assert "No Routes" in html
+    assert "Route: No Data" in html
+
 
 

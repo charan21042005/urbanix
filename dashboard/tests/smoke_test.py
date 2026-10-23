@@ -113,12 +113,27 @@ def run_smoke_test():
         r_inv = requests.get(f"{BASE_URL}/api/route?destination_id=invalid_id", timeout=5)
         print(f"[PASS] GET /api/route?destination_id=invalid_id -> HTTP {r_inv.status_code} (Validation)")
         assert r_inv.status_code == 422
+        data_422 = r_inv.json()
+        assert data_422.get("error") == "UNPROCESSABLE_ENTITY"
+        print(f"       Structured 422 Error: {data_422.get('error')}")
     except Exception as e:
         print(f"[FAIL] GET /api/route?destination_id=invalid_id failed: {e}")
         return False
 
+    # 9. GET /api/route?destination_id=999 (Nonexistent Destination 404 Contract)
+    try:
+        r_404 = requests.get(f"{BASE_URL}/api/route?destination_id=999", timeout=5)
+        print(f"[PASS] GET /api/route?destination_id=999 -> HTTP {r_404.status_code} (Not Found)")
+        assert r_404.status_code == 404
+        data_404 = r_404.json()
+        assert data_404.get("error") == "DESTINATION_NOT_FOUND"
+        print(f"       Structured 404 Error: {data_404.get('error')}")
+    except Exception as e:
+        print(f"[FAIL] GET /api/route?destination_id=999 failed: {e}")
+        return False
+
     print("=" * 60)
-    print("ALL 8 LIVE ENDPOINT SMOKE TESTS PASSED!")
+    print("ALL 9 LIVE ENDPOINT SMOKE TESTS PASSED!")
     print("=" * 60)
     return True
 

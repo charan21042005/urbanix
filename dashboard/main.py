@@ -40,6 +40,7 @@
 import os
 import glob
 import logging
+from enum import Enum
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
@@ -55,9 +56,11 @@ logging.basicConfig(
 logger = logging.getLogger("UrbanixDashboard")
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 # ------------------------------------------------------------------------------
 # 1. Robust Path Resolution (Works from Repo Root OR dashboard/ Subdirectory)
@@ -89,6 +92,19 @@ ROUTES_STALE_THRESHOLD_SECONDS: float = ROUTES_UPDATE_INTERVAL_SECONDS * STALE_T
 PREDICTIONS_STALE_THRESHOLD_SECONDS: float = PREDICTIONS_UPDATE_INTERVAL_SECONDS * STALE_THRESHOLD_MULTIPLIER  # 900.0s
 
 # ------------------------------------------------------------------------------
+# 1c. Error Taxonomy Constants (Day 11 — Phase 4)
+# ------------------------------------------------------------------------------
+class ErrorCode(str, Enum):
+    DATA_SOURCE_UNAVAILABLE = "DATA_SOURCE_UNAVAILABLE"
+    ROUTES_UNAVAILABLE = "ROUTES_UNAVAILABLE"
+    DATA_PARSING_ERROR = "DATA_PARSING_ERROR"
+    INVALID_DATA_SCHEMA = "INVALID_DATA_SCHEMA"
+    DESTINATION_NOT_FOUND = "DESTINATION_NOT_FOUND"
+    INTERNAL_SERVER_ERROR = "INTERNAL_SERVER_ERROR"
+    UNPROCESSABLE_ENTITY = "UNPROCESSABLE_ENTITY"
+    NOT_FOUND = "NOT_FOUND"
+
+# ------------------------------------------------------------------------------
 # 2. FastAPI Application Initialization & Middleware
 # ------------------------------------------------------------------------------
 app = FastAPI(
@@ -112,6 +128,78 @@ app.add_middleware(
     allow_methods=["GET", "OPTIONS"],
     allow_headers=["*"],
 )
+
+
+@app.exception_handler(StarletteHTTPException)
+async def custom_http_exception_handler(request: Request, exc: StarletteHTTPException):
+    """
+    Standardizes all HTTP error responses into a consistent, machine-readable JSON structure
+    without leaking sensitive local filesystem paths or internal stack traces.
+    """
+    if isinstance(exc.detail, dict):
+        error_code = exc.detail.get("error", "HTTP_ERROR")
+        message = exc.detail.get("message", "An HTTP error occurred.")
+        detail_msg = exc.detail.get("detail", message)
+    else:
+        detail_msg = str(exc.detail)
+        if exc.status_code == 404:
+            error_code = ErrorCode.DESTINATION_NOT_FOUND if "destination" in detail_msg.lower() else ErrorCode.NOT_FOUND
+        elif exc.status_code == 422:
+            error_code = ErrorCode.UNPROCESSABLE_ENTITY
+        elif exc.status_code == 503:
+            error_code = ErrorCode.DATA_SOURCE_UNAVAILABLE
+        elif exc.status_code == 500:
+            error_code = ErrorCode.INTERNAL_SERVER_ERROR
+        else:
+            error_code = "HTTP_ERROR"
+        message = detail_msg
+
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "error": error_code,
+            "message": message,
+            "detail": detail_msg,
+            "status_code": exc.status_code
+        }
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """
+    Standardizes request validation errors (HTTP 422) into a structured JSON envelope.
+    """
+    return JSONResponse(
+        status_code=422,
+        content={
+            "error": ErrorCode.UNPROCESSABLE_ENTITY,
+            "message": "Validation error for request parameters.",
+            "detail": exc.errors(),
+            "status_code": 422
+        }
+    )
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    """
+    Safely captures unexpected internal exceptions, logs full diagnostics server-side,
+    and returns a clean, safe HTTP 500 payload to client applications.
+    """
+    logger.critical(
+        f"Unhandled internal exception during {request.method} {request.url.path}: {exc}",
+        exc_info=True
+    )
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": ErrorCode.INTERNAL_SERVER_ERROR,
+            "message": "An unexpected internal server error occurred.",
+            "detail": "Internal server error.",
+            "status_code": 500
+        }
+    )
 
 
 # ------------------------------------------------------------------------------
@@ -416,26 +504,64 @@ def read_latest_predictions_dataframe() -> pd.DataFrame:
     """
     Reads the production Parquet feature table afresh from disk and deterministically
     extracts the single latest prediction record per zone based on window_start descending.
+    
+    Graceful Degradation Contract (Day 11 — Phase 4):
+    - Missing directory or no Parquet chunks -> HTTP 503 (DATA_SOURCE_UNAVAILABLE)
+    - Corrupted Parquet files -> HTTP 500 (DATA_PARSING_ERROR)
+    - Existing but genuinely empty store -> returns empty DataFrame (HTTP 200 with empty list)
+    - Missing required 'zone_id' column -> HTTP 500 (INVALID_DATA_SCHEMA)
     """
-    parquet_files = get_parquet_files(FEATURE_TABLE_DIR)
-    if not parquet_files:
+    if not FEATURE_TABLE_DIR.exists():
+        logger.warning(f"Traffic feature store directory does not exist at {FEATURE_TABLE_DIR}")
         raise HTTPException(
             status_code=503,
-            detail=f"Traffic feature store not found or empty at {FEATURE_TABLE_DIR}. Ensure Day 6 / Day 9 streaming job has persisted predictions."
+            detail={
+                "error": ErrorCode.DATA_SOURCE_UNAVAILABLE,
+                "message": "Traffic predictions data source is temporarily unavailable.",
+                "detail": "Traffic feature store directory is missing."
+            }
+        )
+
+    parquet_files = get_parquet_files(FEATURE_TABLE_DIR)
+    if not parquet_files:
+        logger.warning(f"No parquet files found in feature table directory {FEATURE_TABLE_DIR}")
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": ErrorCode.DATA_SOURCE_UNAVAILABLE,
+                "message": "Traffic predictions data source is temporarily unavailable.",
+                "detail": "No Parquet chunks available in traffic feature store."
+            }
         )
 
     try:
         df = pd.read_parquet(parquet_files)
     except Exception as ex:
+        logger.error(f"Failed to read Parquet feature store files: {ex}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to read Parquet feature store: {str(ex)}"
+            detail={
+                "error": ErrorCode.DATA_PARSING_ERROR,
+                "message": "Failed to parse traffic feature store files.",
+                "detail": "Data store parsing error."
+            }
         )
 
-    if df.empty or "zone_id" not in df.columns:
+    # Empty store handling: return empty DataFrame without crashing
+    if df.empty:
+        logger.info("Traffic feature store exists but contains 0 records.")
+        return pd.DataFrame()
+
+    # Schema validation
+    if "zone_id" not in df.columns:
+        logger.error(f"Traffic feature store is missing required 'zone_id' column. Columns: {list(df.columns)}")
         raise HTTPException(
             status_code=500,
-            detail="Traffic feature store is empty or missing required 'zone_id' column."
+            detail={
+                "error": ErrorCode.INVALID_DATA_SCHEMA,
+                "message": "Traffic feature store schema is invalid: missing required 'zone_id' column.",
+                "detail": "Schema validation failed."
+            }
         )
 
     # Identify temporal ordering column (prefers window_start, falls back to window)
@@ -451,26 +577,64 @@ def read_latest_predictions_dataframe() -> pd.DataFrame:
 def read_recommended_routes_dataframe() -> pd.DataFrame:
     """
     Reads the production GraphX recommended routes snapshot afresh from disk.
+    
+    Graceful Degradation Contract (Day 11 — Phase 4):
+    - Missing directory or no Parquet chunks -> HTTP 503 (ROUTES_UNAVAILABLE)
+    - Corrupted Parquet files -> HTTP 500 (DATA_PARSING_ERROR)
+    - Existing but genuinely empty snapshot -> returns empty DataFrame
+    - Missing required route columns -> HTTP 500 (INVALID_DATA_SCHEMA)
     """
-    parquet_files = get_parquet_files(RECOMMENDED_ROUTES_DIR)
-    if not parquet_files:
+    if not RECOMMENDED_ROUTES_DIR.exists():
+        logger.warning(f"Recommended routes directory does not exist at {RECOMMENDED_ROUTES_DIR}")
         raise HTTPException(
             status_code=503,
-            detail=f"Recommended routes snapshot not found at {RECOMMENDED_ROUTES_DIR}. Ensure RouteRecommender has published route recommendations."
+            detail={
+                "error": ErrorCode.ROUTES_UNAVAILABLE,
+                "message": "Recommended routes snapshot is temporarily unavailable.",
+                "detail": "Recommended routes directory is missing."
+            }
+        )
+
+    parquet_files = get_parquet_files(RECOMMENDED_ROUTES_DIR)
+    if not parquet_files:
+        logger.warning(f"No parquet files found in recommended routes directory {RECOMMENDED_ROUTES_DIR}")
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": ErrorCode.ROUTES_UNAVAILABLE,
+                "message": "Recommended routes snapshot is temporarily unavailable.",
+                "detail": "No Parquet chunks available in recommended routes directory."
+            }
         )
 
     try:
         df = pd.read_parquet(parquet_files)
     except Exception as ex:
+        logger.error(f"Failed to read recommended routes Parquet snapshot: {ex}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to read recommended routes Parquet snapshot: {str(ex)}"
+            detail={
+                "error": ErrorCode.DATA_PARSING_ERROR,
+                "message": "Failed to parse recommended routes snapshot.",
+                "detail": "Data store parsing error."
+            }
         )
 
     if df.empty:
+        logger.info("Recommended routes snapshot exists but contains 0 records.")
+        return pd.DataFrame()
+
+    required_cols = {"origin_id", "destination_id", "path"}
+    missing = required_cols - set(df.columns)
+    if missing:
+        logger.error(f"Recommended routes snapshot is missing required columns: {missing}. Columns: {list(df.columns)}")
         raise HTTPException(
             status_code=500,
-            detail="Recommended routes snapshot is empty."
+            detail={
+                "error": ErrorCode.INVALID_DATA_SCHEMA,
+                "message": f"Recommended routes snapshot schema is invalid: missing required column(s): {', '.join(sorted(missing))}.",
+                "detail": "Schema validation failed."
+            }
         )
 
     return df.sort_values("destination_id", ascending=True)
@@ -489,8 +653,12 @@ async def get_predictions() -> List[Dict[str, Any]]:
     - Reads genuine Parquet feature store on every request (zero in-memory caching).
     - Speed is extracted from 'predicted_speed_kmph', 'predicted_speed', or 'avg_speed_kmph'.
     - PM2.5 / AQI is explicitly returned as null (never fabricated; documented as deferred per Day 6).
+    - Returns empty list HTTP 200 when feature store is genuinely empty.
     """
     df = read_latest_predictions_dataframe()
+    if df.empty:
+        return []
+
     centroids = load_zone_coordinates()
 
     # Determine which speed column exists in this feature table
@@ -551,12 +719,28 @@ async def get_route(destination_id: Optional[int] = None) -> List[Dict[str, Any]
     """
     df = read_recommended_routes_dataframe()
 
+    if df.empty:
+        if destination_id is not None:
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "error": ErrorCode.DESTINATION_NOT_FOUND,
+                    "message": f"Destination ID {destination_id} not found in current route snapshot.",
+                    "detail": f"Destination ID {destination_id} not found."
+                }
+            )
+        return []
+
     if destination_id is not None:
         df = df[df["destination_id"] == destination_id]
         if df.empty:
             raise HTTPException(
                 status_code=404,
-                detail=f"Destination ID {destination_id} not found in current route snapshot."
+                detail={
+                    "error": ErrorCode.DESTINATION_NOT_FOUND,
+                    "message": f"Destination ID {destination_id} not found in current route snapshot.",
+                    "detail": f"Destination ID {destination_id} not found."
+                }
             )
 
     results = []
@@ -694,6 +878,7 @@ async def get_map(destination_id: Optional[int] = 15) -> str:
 
     # 3. Add Recommended Route PolyLine (FR-8: Dynamic Route Overlay)
     intersections_reg = load_intersections_registry()
+    route_rendered: bool = False
     if destination_id is not None and destination_id > 0:
         try:
             routes_df = read_recommended_routes_dataframe()
@@ -758,6 +943,7 @@ async def get_map(destination_id: Optional[int] = 15) -> str:
                             tooltip=route_tooltip,
                             popup=folium.Popup(route_popup_html, max_width=290)
                         ).add_to(m)
+                        route_rendered = True
 
                         # Prominent Origin Indicator (Node 1)
                         folium.CircleMarker(
@@ -797,7 +983,34 @@ async def get_map(destination_id: Optional[int] = 15) -> str:
             logger.warning(f"Could not load or render route overlay for destination {destination_id}: {ex}")
 
     # 4. Add Custom Floating Map Legend
-    legend_html = """
+    if destination_id is not None and destination_id > 0:
+        if route_rendered:
+            route_legend_entries = """
+            <div style="display: flex; align-items: center; margin-top: 4px;">
+                <span style="height: 4px; width: 16px; background-color: #2563EB; display: inline-block; margin-right: 8px;"></span>
+                <span>Recommended Route (Pregel SSSP) [Fresh]</span>
+            </div>
+            <div style="display: flex; align-items: center; margin-top: 4px;">
+                <span style="height: 4px; width: 16px; background-color: #6B7280; display: inline-block; margin-right: 8px;"></span>
+                <span>Recommended Route (Pregel SSSP) [STALE]</span>
+            </div>
+            """
+        else:
+            route_legend_entries = """
+            <div style="display: flex; align-items: center; margin-top: 4px;">
+                <span style="height: 4px; width: 16px; background-color: #9CA3AF; display: inline-block; margin-right: 8px;"></span>
+                <span>Recommended Route (Pregel SSSP) [Route Unavailable]</span>
+            </div>
+            """
+    else:
+        route_legend_entries = """
+        <div style="display: flex; align-items: center; margin-top: 4px;">
+            <span style="height: 4px; width: 16px; background-color: #9CA3AF; display: inline-block; margin-right: 8px;"></span>
+            <span>Recommended Route (Pregel SSSP) [No Destination]</span>
+        </div>
+        """
+
+    legend_html = f"""
     <div style="
         position: fixed;
         bottom: 25px;
@@ -825,14 +1038,7 @@ async def get_map(destination_id: Optional[int] = 15) -> str:
             <span style="height: 12px; width: 12px; background-color: #EF4444; border-radius: 50%; display: inline-block; margin-right: 8px;"></span>
             <span>Congested (&lt; 30 km/h)</span>
         </div>
-        <div style="display: flex; align-items: center; margin-top: 4px;">
-            <span style="height: 4px; width: 16px; background-color: #2563EB; display: inline-block; margin-right: 8px;"></span>
-            <span>Recommended Route (Pregel SSSP) [Fresh]</span>
-        </div>
-        <div style="display: flex; align-items: center; margin-top: 4px;">
-            <span style="height: 4px; width: 16px; background-color: #6B7280; display: inline-block; margin-right: 8px;"></span>
-            <span>Recommended Route (Pregel SSSP) [STALE]</span>
-        </div>
+        {route_legend_entries}
         <div style="display: flex; align-items: center; margin-top: 4px;">
             <span style="height: 8px; width: 8px; background-color: #3B82F6; border-radius: 50%; display: inline-block; margin-right: 10px; margin-left: 2px;"></span>
             <span style="color: #6B7280;">Node 1: Dispatch Origin</span>

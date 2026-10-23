@@ -592,6 +592,11 @@
                 if (!Array.isArray(predictions) || predictions.length === 0) {
                     setStatusTag('badge-pred-header', 'unknown', 'Predictions: No Data');
                     setStatusTag('chip-pred-badge', 'unknown', 'No Data');
+                    document.getElementById('chip-avg-speed').textContent = '-- km/h';
+                    document.getElementById('chip-zones').textContent = '0 Active';
+                    document.getElementById('chip-window').textContent = 'No Data';
+                    const zoneChipsContainer = document.getElementById('zone-chips-container');
+                    zoneChipsContainer.innerHTML = '<div style="font-size: 11px; color: var(--text-muted); padding: 8px 12px; display: flex; align-items: center; gap: 6px;"><span>ℹ️</span> No data yet. Awaiting sensor micro-batch streaming output...</div>';
                     return;
                 }
 
@@ -605,8 +610,13 @@
                     setStatusTag('chip-pred-badge', 'error', 'Cached');
                 } else {
                     setStatusTag('badge-pred-header', 'error', 'Predictions: Unavailable');
-                    setStatusTag('chip-pred-badge', 'error', 'Error');
-                    showError(`Failed to fetch latest prediction metrics (${err.message})`);
+                    setStatusTag('chip-pred-badge', 'error', 'Unavailable');
+                    document.getElementById('chip-avg-speed').textContent = '-- km/h';
+                    document.getElementById('chip-zones').textContent = 'Unavailable';
+                    document.getElementById('chip-window').textContent = 'Offline';
+                    const zoneChipsContainer = document.getElementById('zone-chips-container');
+                    zoneChipsContainer.innerHTML = '<div style="font-size: 11px; color: #FCA5A5; padding: 8px 12px; display: flex; align-items: center; gap: 6px;"><span>⚠️</span> Prediction service temporarily unavailable. Auto-retrying...</div>';
+                    showError(`Prediction service unavailable (${err.message})`);
                 }
             }
         }
@@ -625,6 +635,7 @@
                 if (!Array.isArray(routes) || routes.length === 0) {
                     setStatusTag('badge-route-header', 'unknown', 'Route: No Data');
                     setStatusTag('chip-route-badge', 'unknown', 'No Data');
+                    document.getElementById('chip-routes').textContent = 'No Routes';
                     return;
                 }
 
@@ -639,7 +650,8 @@
                     setStatusTag('chip-route-badge', 'error', 'Cached');
                 } else {
                     setStatusTag('badge-route-header', 'error', 'Route: Unavailable');
-                    setStatusTag('chip-route-badge', 'error', 'Error');
+                    setStatusTag('chip-route-badge', 'error', 'Unavailable');
+                    document.getElementById('chip-routes').textContent = 'Unavailable';
                 }
             }
         }

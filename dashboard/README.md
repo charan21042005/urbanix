@@ -156,19 +156,66 @@ The FastAPI application in `main.py` exposes four primary routes:
 
 All automated tests for this subfolder are located in `dashboard/tests/`:
 
-### 1. Pytest Unit & Contract Suite
-Run the 34 automated unit, freshness, and regression tests:
+### 1. Pytest Unit, Freshness & Degradation Suite
+Run the 47 automated unit, freshness, graceful degradation, and error taxonomy tests:
 ```powershell
 .\dashboard\venv\Scripts\python.exe -m pytest dashboard/tests -v
 ```
-*Tests cover path resolution, metadata filtering, centroid calculations, status thresholds, endpoint schemas, negative input handling (404/422), route PolyLine coordinate ordering, boundary freshness helper evaluation, timezone normalization, clock-skew protection, and mock-free compliance.*
+*Tests cover path resolution, metadata filtering, centroid calculations, status thresholds, endpoint schemas, negative input handling (404/422), route PolyLine coordinate ordering, boundary freshness helper evaluation, timezone normalization, clock-skew protection, mock-free compliance, missing source directories (503), empty feature tables (200 with []), corrupted Parquet handling (500), schema validation failure (500), map fallbacks when sources are absent, and unhandled 500 error sanitization without filesystem or stack trace leakage.*
 
 ### 2. Live HTTP Smoke Test
 While Uvicorn is running, execute the standalone smoke verification script:
 ```powershell
 .\dashboard\venv\Scripts\python.exe dashboard\tests\smoke_test.py
 ```
-*Validates status codes, freshness metadata (`computed_at`, `is_stale`), and response bodies across all 8 live endpoint test cases on `http://127.0.0.1:8000`.*
+*Validates status codes, freshness metadata (`computed_at`, `is_stale`), structured error responses (404, 422), and response bodies across all 9 live endpoint test cases on `http://127.0.0.1:8000`.*
+
+---
+
+## 🛡️ Error Taxonomy & Graceful Degradation Contract (Day 11 — Phase 4)
+
+The dashboard implements an enterprise-grade error taxonomy and graceful degradation model across all endpoints. Real HTTP error codes are strictly preserved (no masking real failures with false HTTP 200s), while client-safe structured JSON error envelopes prevent sensitive local path or stack trace leakage.
+
+### 1. Structured Error Response Envelope
+
+All error responses from the FastAPI backend conform to a standardized schema:
+
+```json
+{
+  "error": "DATA_SOURCE_UNAVAILABLE",
+  "message": "Traffic predictions data source is temporarily unavailable.",
+  "detail": "Traffic feature store directory is missing.",
+  "status_code": 503
+}
+```
+
+| Field | Type | Description |
+| :--- | :--- | :--- |
+| `error` | string | Stable, machine-readable `ErrorCode` string enum. |
+| `message` | string | Safe, human-readable high-level explanation suitable for user display. |
+| `detail` | string / array / object | Contextual details without exposing sensitive filesystem paths or tracebacks. |
+| `status_code` | integer | Numeric HTTP status code matching the response header. |
+
+### 2. Error Taxonomy Matrix
+
+| Scenario | HTTP Status | ErrorCode | Backend Behavior | Frontend Presentation |
+| :--- | :---: | :--- | :--- | :--- |
+| **Missing Feature Table Directory** | `503` | `DATA_SOURCE_UNAVAILABLE` | Logs internal path server-side; returns safe structured 503 without local paths. | Displays friendly warning banner: *"Traffic predictions are temporarily unavailable."* Retains last-known cached values if available with `Cached (API Down)` badge. |
+| **Empty Feature Table (0 rows)** | `200` | *None* (`[]`) | Returns HTTP 200 with an empty JSON array `[]`. Does not fabricate zone readings. | Displays `0 Active`, `-- km/h`, `No Data`, and notice: *"ℹ️ No data yet. Awaiting sensor micro-batch streaming output..."*. |
+| **Corrupted Parquet Data** | `500` | `DATA_PARSING_ERROR` | Catches PyArrow/FastParquet parsing exceptions, logs diagnostic with traceback, returns safe 500. | Informs user that data parsing failed; falls back to cached values if available. |
+| **Invalid Schema (Missing Columns)** | `500` | `INVALID_DATA_SCHEMA` | Rejects DataFrame missing mandatory schema columns (e.g. `zone_id`), returns structured 500. | Retains cached state; logs schema failure server-side. |
+| **Missing Route Snapshot Directory** | `503` | `ROUTES_UNAVAILABLE` | Returns structured 503 for `/api/route`. `/api/map` gracefully falls back to base geographic map with legend showing `[Route Unavailable]`. | Sets route badge to `Route: Unavailable`. Map renders cleanly without crashing or drawing broken lines. |
+| **Empty Route Table (0 rows)** | `200` / `404` | `DESTINATION_NOT_FOUND` | `/api/route` returns `[]`. Query for specific destination returns 404 with structured envelope. | Chip displays `No Routes`, badge shows `Route: No Data`. |
+| **Missing Intersections Registry** | `200` (Map) | *None* | Map falls back to base Los Angeles heatmap. Missing node coordinates safely abort PolyLine drawing. | Base map renders without route overlay; avoids partial or misleading lines. |
+| **Invalid Destination Query** | `404` | `DESTINATION_NOT_FOUND` | Returned when requested destination ID does not exist in routes snapshot. | Displays not found notification for queried route. |
+| **Malformed Query Parameter** | `422` | `UNPROCESSABLE_ENTITY` | Pydantic/FastAPI validation error standardized into structured JSON envelope. | Logs validation error cleanly without server crash. |
+| **Unexpected Internal Exception** | `500` | `INTERNAL_SERVER_ERROR` | Global exception handler logs full critical traceback server-side and returns generic 500. | Displays system error banner; zero stack traces or secret data leaked to browser. |
+
+### 3. Freshness & Cache Semantics During Outages
+
+- **Independent Resilience**: Traffic prediction outages and routing engine outages fail independently. A failure in `/api/route` never disables prediction cards, and vice versa.
+- **Epistemic Honesty for Cached Values**: When an endpoint becomes unavailable after previously succeeding, the frontend preserves the last known valid values and marks them `Cached (API Down)`. Their original source timestamps and calculated ages are preserved. Cached values are **never** treated as fresh simply because the cache was read.
+- **Safe Recovery**: When downstream data pipelines recover and endpoints return fresh data, the frontend seamlessly transitions back to normal operating status (`Fresh` or `Stale` depending on actual data age) without requiring page reload.
 
 ---
 
@@ -199,6 +246,9 @@ While Uvicorn is running, execute the standalone smoke verification script:
 | Issue | Cause | Fix |
 | :--- | :--- | :--- |
 | **`[Errno 10048] address already in use`** | Another process is occupying port 8000. | Stop the existing process or launch Uvicorn on a different port: `--port 8080`. |
-| **`HTTP 503 Feature table not found`** | `../data/feature_table/traffic/` is missing or contains no Parquet files. | Ensure the upstream pipeline has populated the feature table directory. |
-| **`HTTP 503 Recommended routes snapshot not found`** | `../data/recommended_routes/` is missing. | Ensure the GraphX routing module has published route recommendations. |
+| **`HTTP 503 DATA_SOURCE_UNAVAILABLE`** | `../data/feature_table/traffic/` is missing or contains no Parquet files. | Ensure the upstream pipeline has populated the feature table directory. Check server logs for internal path diagnostics. |
+| **`HTTP 503 ROUTES_UNAVAILABLE`** | `../data/recommended_routes/` is missing or contains no route Parquet chunks. | Ensure the GraphX routing module has published route recommendations. |
+| **`HTTP 500 DATA_PARSING_ERROR`** | Parquet file on disk is truncated or contains corrupted byte streams. | Re-run upstream Spark job or inspect directory for corrupt `.parquet` files. |
+| **`HTTP 500 INVALID_DATA_SCHEMA`** | Parquet schema missing required columns (`zone_id` for predictions, `destination_id`/`path` for routes). | Verify upstream Spark schema definition. |
 | **Blank map in browser** | JavaScript blocked or iframe path resolution issue. | Ensure internet access is available for Leaflet CDN assets and inspect browser DevTools (`F12`) console. |
+
