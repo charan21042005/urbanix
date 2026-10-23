@@ -1,119 +1,176 @@
 # ==============================================================================
-# Urbanix — Day 10: Geospatial Dashboard Backend, Live Heatmap & APIs
-# main.py — FastAPI Application Serving Live Parquet Predictions & Folium Map
+# 🌟 URBANIX — GEOSPATIAL DASHBOARD BACKEND & REST API SERVICE
+# main.py — Asynchronous FastAPI Web Server, Real-Time Parquet Reader & Folium Map Builder
 # ==============================================================================
+# Welcome to the main backend engine of the Urbanix Dashboard! 👋
 #
-# 1. ARCHITECTURAL OVERVIEW:
-# In Weekends 1-3 (Days 1-9), the Urbanix platform built an enterprise-grade distributed
-# pipeline:
-#   - Weekend 1 (Days 1-3): Kafka sensor producers -> Spark Structured Streaming -> Windowed Aggregations
-#   - Weekend 2 (Days 4-6): MLlib Feature Engineering -> Linear Regression & Decision Tree Forecasting
-#   - Weekend 3 (Days 7-9): Scala Spark GraphX Pregel Shortest-Path Routing Engine
+# WHAT IS THIS FILE FOR?
+# This Python file is the "brain" and web server of our dashboard.
+# In web development, frontends (like HTML and JavaScript in the browser) need a way
+# to talk to data on the computer's hard drive. That's where this backend comes in!
+# It runs a FastAPI web application that:
+#   1. Reads real-time traffic forecasts from Apache Spark (stored in Parquet files).
+#   2. Reads optimal emergency vehicle routes from Scala GraphX (also in Parquet files).
+#   3. Determines whether data is "Fresh" or "Stale" using strict time formulas.
+#   4. Renders an interactive, dynamic Folium Leaflet geospatial heatmap.
+#   5. Serves clean, safe JSON REST API endpoints (/api/predictions, /api/route, /api/map).
 #
-# The output of this entire pipeline sits on disk in two decoupled Apache Parquet datasets:
-#   - `data/feature_table/traffic/`: Windowed traffic observations and MLlib velocity forecasts per zone.
-#   - `data/recommended_routes/`: Current optimal shortest paths and travel times computed by GraphX.
+# ------------------------------------------------------------------------------
+# 🎓 3 CORE ARCHITECTURAL CONCEPTS EVERY BEGINNER SHOULD KNOW:
+# ------------------------------------------------------------------------------
+# 1. WHAT IS FASTAPI?
+#    FastAPI is one of the fastest, most modern Python web frameworks in the world.
+#    It lets us build REST APIs with minimal code and automatically validates inputs!
 #
-# Day 10 provides the visible face of Urbanix:
-# A lightweight, asynchronous FastAPI web backend that reads these Parquet datasets FRESH on every
-# HTTP request, builds a dynamic Folium Leaflet geospatial heatmap, and exposes clean REST APIs
-# for automated browser polling.
+# 2. WHY ZERO IN-MEMORY CACHING? (READING FRESH PARQUET ON EVERY REQUEST):
+#    In big data streaming, Apache Spark and Scala GraphX continuously write new
+#    predictions to the disk. If we loaded data into memory once when the server started,
+#    the dashboard would be frozen on old data forever! By reading the Parquet files
+#    fresh on every request, operators always see the true, living state of the city!
 #
-# 2. WHY NO CACHING IN MEMORY (READING FRESH PARQUET):
-# Evaluators and operators need to see live updates as the streaming and routing engines commit
-# new micro-batches. If FastAPI cached a DataFrame at startup in a global variable, the web UI
-# would remain frozen on stale data even while Spark commits new predictions.
-# By executing a fast columnar Parquet scan on every request, the API reflects the genuine,
-# current state of the filesystem at that millisecond.
-#
-# 3. UNDERSTANDING CORS (CROSS-ORIGIN RESOURCE SHARING):
-# By default, modern browsers enforce the Same-Origin Policy (SOP) to protect users from malicious
-# cross-site requests. An origin is defined by (Protocol + Domain + Port).
-# In our architecture, the browser page (index.html) is served by FastAPI on http://localhost:8000/,
-# and it fetches API endpoints on http://localhost:8000/api/*. Because the protocol, domain, and port
-# are identical, these are SAME-ORIGIN requests, meaning CORS is technically not required!
-# However, to support local frontend development (e.g. if a developer serves index.html via Live Server
-# on port 5500 or port 3000), we configure restrictive local CORS allowing only localhost origins.
-# We explicitly avoid dangerous wildcard `allow_origins=["*"]` in production code.
+# 3. WHAT IS CORS (CROSS-ORIGIN RESOURCE SHARING)?
+#    Web browsers have a security rule: a web page on port 3000 cannot talk to an API
+#    on port 8000 unless the API explicitly allows it! We configure CORS middleware
+#    so local developer tools (like React, Vite, or Live Server) can safely communicate.
 # ==============================================================================
 
+# ==============================================================================
+# 📦 STEP 1: IMPORT STANDARD PYTHON LIBRARIES
+# ==============================================================================
+
+# 'os' provides tools to interact with the Operating System (e.g. reading environment variables).
 import os
+
+# 'glob' is a pattern-matching tool for finding file paths (e.g. searching for "*.parquet").
 import glob
+
+# 'logging' is Python's tool for recording diagnostic messages, warnings, and errors.
 import logging
+
+# 'Enum' (Enumeration) allows us to define fixed sets of named symbolic constants (like Error Codes).
 from enum import Enum
+
+# 'datetime' and 'timezone' are essential for manipulating timestamps and working with UTC clocks.
 from datetime import datetime, timezone
+
+# 'pathlib.Path' is the modern, cross-platform way to handle file and folder paths in Python.
 from pathlib import Path
+
+# 'typing' adds type hints to Python functions, making code easier to read and debug for beginners!
+# For example: List[str] means a list of strings; Optional[int] means an integer or None.
 from typing import List, Dict, Any, Optional, Tuple
 
+# ==============================================================================
+# 📦 STEP 2: IMPORT THIRD-PARTY BIG DATA & MAPPING LIBRARIES
+# ==============================================================================
+
+# 'pandas' is Python's premier data analysis library for reading and processing tabular data.
 import pandas as pd
+
+# 'folium' is a Python library that generates interactive, draggable Leaflet.js maps in HTML!
 import folium
 from folium.plugins import MiniMap
 
+# ==============================================================================
+# 📦 STEP 3: CONFIGURE SYSTEM LOGGING
+# ==============================================================================
+# This sets up a clean, uniform logging format so messages in the terminal look professional:
+# Example: "2026-10-23 22:00:00,123 [INFO] [Urbanix-Dashboard] Starting web server..."
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] [Urbanix-Dashboard] %(message)s",
 )
+# Create a dedicated logger instance for our dashboard application
 logger = logging.getLogger("UrbanixDashboard")
 
+# ==============================================================================
+# 📦 STEP 4: IMPORT FASTAPI WEB SERVER MODULES
+# ==============================================================================
+# 'FastAPI' is the main application class.
+# 'HTTPException' allows us to raise HTTP errors (like 404 Not Found or 503 Unavailable).
+# 'Request' represents the incoming HTTP request from the browser.
 from fastapi import FastAPI, HTTPException, Request
+
+# 'RequestValidationError' is raised when a user passes the wrong data type (e.g. text instead of a number).
 from fastapi.exceptions import RequestValidationError
+
+# 'CORSMiddleware' handles browser security permissions across different ports.
 from fastapi.middleware.cors import CORSMiddleware
+
+# Custom response classes telling the browser what format we are returning (HTML, Files, or JSON).
 from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
+
+# 'StaticFiles' allows FastAPI to serve images, CSS stylesheets, and client JavaScript directly from a folder.
 from fastapi.staticfiles import StaticFiles
+
+# Starlette is the ultra-fast underlying ASGI toolkit that powers FastAPI.
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-# ------------------------------------------------------------------------------
-# 1. Robust Path Resolution (Works from Repo Root OR dashboard/ Subdirectory)
-# ------------------------------------------------------------------------------
-# Resolve repository root dynamically based on this file's physical location:
-# dashboard/main.py -> parent is dashboard/ -> parent.parent is urbanix repo root.
+
+# ==============================================================================
+# 📂 STEP 5: ROBUST DIRECTORY PATH RESOLUTION
+# ==============================================================================
+# Beginner Tip: Hardcoding paths like "C:/Users/.../data" is bad practice because
+# the code will break on someone else's computer.
+# Instead, we find the path relative to THIS file's physical location:
+#   dashboard/main.py -> .parent is 'dashboard/' -> .parent.parent is the 'urbanix' project root!
 REPO_ROOT: Path = Path(__file__).resolve().parent.parent
 DASHBOARD_DIR: Path = Path(__file__).resolve().parent
 STATIC_DIR: Path = DASHBOARD_DIR / "static"
 
+# Concrete paths to project datasets:
 FEATURE_TABLE_DIR: Path = REPO_ROOT / "data" / "feature_table" / "traffic"
 RECOMMENDED_ROUTES_DIR: Path = REPO_ROOT / "data" / "recommended_routes"
 INTERSECTIONS_CSV: Path = REPO_ROOT / "data" / "intersections.csv"
 ROADS_CSV: Path = REPO_ROOT / "data" / "roads.csv"
 
-# ------------------------------------------------------------------------------
-# 1b. Freshness Configuration Constants (Day 11 — Phase 3)
-# ------------------------------------------------------------------------------
-# Production data generation cadences:
-# - Routes are recomputed approximately every 60 seconds by GraphX RouteRecommender.
-# - Predictions are generated per 5-minute (300s) tumbling window by Spark Streaming.
-# - A data source is considered STALE when its age reaches or exceeds 3x its production cadence.
+
+# ==============================================================================
+# ⏱️ STEP 6: DATA FRESHNESS CONFIGURATION CONSTANTS
+# ==============================================================================
+# In smart cities, sensor data ages quickly. We establish strict freshness thresholds:
+#   - Routes are recomputed by Scala GraphX every 60 seconds (1 minute).
+#   - Predictions are computed by Spark Streaming every 300 seconds (5 minutes).
+#   - Rule of Thumb: Data is considered STALE when it is 3 times (3x) older than its normal schedule!
 ROUTES_UPDATE_INTERVAL_SECONDS: float = float(os.getenv("ROUTES_UPDATE_INTERVAL_SECONDS", "60.0"))
 PREDICTIONS_UPDATE_INTERVAL_SECONDS: float = float(os.getenv("PREDICTIONS_UPDATE_INTERVAL_SECONDS", "300.0"))
 STALE_THRESHOLD_MULTIPLIER: float = float(os.getenv("STALE_THRESHOLD_MULTIPLIER", "3.0"))
 
-# Thresholds where age >= threshold is marked STALE (multiplier applied exactly once):
-ROUTES_STALE_THRESHOLD_SECONDS: float = ROUTES_UPDATE_INTERVAL_SECONDS * STALE_THRESHOLD_MULTIPLIER  # 180.0s
-PREDICTIONS_STALE_THRESHOLD_SECONDS: float = PREDICTIONS_UPDATE_INTERVAL_SECONDS * STALE_THRESHOLD_MULTIPLIER  # 900.0s
+# Thresholds where age >= threshold is marked STALE:
+# Routes threshold:      60s  * 3.0 = 180.0s (3 minutes)
+# Predictions threshold: 300s * 3.0 = 900.0s (15 minutes)
+ROUTES_STALE_THRESHOLD_SECONDS: float = ROUTES_UPDATE_INTERVAL_SECONDS * STALE_THRESHOLD_MULTIPLIER
+PREDICTIONS_STALE_THRESHOLD_SECONDS: float = PREDICTIONS_UPDATE_INTERVAL_SECONDS * STALE_THRESHOLD_MULTIPLIER
 
-# ------------------------------------------------------------------------------
-# 1c. Error Taxonomy Constants (Day 11 — Phase 4)
-# ------------------------------------------------------------------------------
+
+# ==============================================================================
+# 🏷️ STEP 7: ERROR TAXONOMY ENUMERATION
+# ==============================================================================
+# An Enum groups related symbolic names together. This prevents typos and guarantees
+# that our API returns standardized machine-readable error codes to frontend clients.
 class ErrorCode(str, Enum):
-    DATA_SOURCE_UNAVAILABLE = "DATA_SOURCE_UNAVAILABLE"
-    ROUTES_UNAVAILABLE = "ROUTES_UNAVAILABLE"
-    DATA_PARSING_ERROR = "DATA_PARSING_ERROR"
-    INVALID_DATA_SCHEMA = "INVALID_DATA_SCHEMA"
-    DESTINATION_NOT_FOUND = "DESTINATION_NOT_FOUND"
-    INTERNAL_SERVER_ERROR = "INTERNAL_SERVER_ERROR"
-    UNPROCESSABLE_ENTITY = "UNPROCESSABLE_ENTITY"
-    NOT_FOUND = "NOT_FOUND"
+    DATA_SOURCE_UNAVAILABLE = "DATA_SOURCE_UNAVAILABLE"  # HTTP 503: Parquet folder missing
+    ROUTES_UNAVAILABLE = "ROUTES_UNAVAILABLE"            # HTTP 503: Routes folder missing
+    DATA_PARSING_ERROR = "DATA_PARSING_ERROR"            # HTTP 500: Parquet file corrupted
+    INVALID_DATA_SCHEMA = "INVALID_DATA_SCHEMA"          # HTTP 500: Missing expected columns
+    DESTINATION_NOT_FOUND = "DESTINATION_NOT_FOUND"      # HTTP 404: Node ID does not exist
+    INTERNAL_SERVER_ERROR = "INTERNAL_SERVER_ERROR"      # HTTP 500: Unexpected internal crash
+    UNPROCESSABLE_ENTITY = "UNPROCESSABLE_ENTITY"        # HTTP 422: Wrong query type (e.g. text for int)
+    NOT_FOUND = "NOT_FOUND"                              # HTTP 404: Generic endpoint not found
 
-# ------------------------------------------------------------------------------
-# 2. FastAPI Application Initialization & Middleware
-# ------------------------------------------------------------------------------
+
+# ==============================================================================
+# 🚀 STEP 8: FASTAPI APPLICATION INITIALIZATION & MIDDLEWARE
+# ==============================================================================
+# Create the FastAPI app instance with metadata for Swagger documentation
 app = FastAPI(
     title="Urbanix Smart City Geospatial Dashboard",
     description="Real-time traffic forecasting, zone congestion heatmaps, and GraphX shortest-path recommendations.",
     version="1.0.0"
 )
 
-# Configure restrictive local CORS (permits local dashboard testing across standard dev ports)
+# Configure CORS Middleware:
+# Allows browsers connecting from localhost ports (8000, 3000, 5500) to fetch API data
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -125,16 +182,27 @@ app.add_middleware(
         "http://127.0.0.1:5500"
     ],
     allow_credentials=True,
-    allow_methods=["GET", "OPTIONS"],
+    allow_methods=["GET", "OPTIONS"], # Only allow safe read-only HTTP methods
     allow_headers=["*"],
 )
 
 
+# ==============================================================================
+# 🛡️ STEP 9: CENTRALIZED EXCEPTION HANDLERS (ERROR WRAPPERS)
+# ==============================================================================
+# These handlers intercept errors across the entire app and format them into
+# clean, predictable JSON responses without leaking computer paths or secret stack traces!
+
 @app.exception_handler(StarletteHTTPException)
 async def custom_http_exception_handler(request: Request, exc: StarletteHTTPException):
     """
-    Standardizes all HTTP error responses into a consistent, machine-readable JSON structure
-    without leaking sensitive local filesystem paths or internal stack traces.
+    Standardizes all HTTP exceptions (like 404, 503, 500) into a clean JSON envelope:
+    {
+        "error": "DESTINATION_NOT_FOUND",
+        "message": "Destination ID 999 not found",
+        "detail": "...",
+        "status_code": 404
+    }
     """
     if isinstance(exc.detail, dict):
         error_code = exc.detail.get("error", "HTTP_ERROR")
@@ -168,7 +236,8 @@ async def custom_http_exception_handler(request: Request, exc: StarletteHTTPExce
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     """
-    Standardizes request validation errors (HTTP 422) into a structured JSON envelope.
+    Standardizes input validation errors (HTTP 422).
+    For example: if a user visits /api/route?destination_id=banana instead of a number!
     """
     return JSONResponse(
         status_code=422,
@@ -184,8 +253,10 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception):
     """
-    Safely captures unexpected internal exceptions, logs full diagnostics server-side,
-    and returns a clean, safe HTTP 500 payload to client applications.
+    Ultimate Safety Net:
+    If an unexpected Python bug occurs anywhere, this handler catches it.
+    It logs the full error details privately to the server terminal,
+    and returns a polite, sanitized HTTP 500 message to the user without exposing code secrets!
     """
     logger.critical(
         f"Unhandled internal exception during {request.method} {request.url.path}: {exc}",
@@ -202,25 +273,27 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
     )
 
 
-# ------------------------------------------------------------------------------
-# 3. Helper Functions: Data Ingestion & Transformation
-# ------------------------------------------------------------------------------
+# ==============================================================================
+# 🛠️ STEP 10: HELPER FUNCTIONS (DATA INGESTION, PARSING & FRESHNESS)
+# ==============================================================================
 
 def get_parquet_files(dir_path: Path) -> List[str]:
     """
-    Safely discovers all real Parquet chunks in a directory while strictly ignoring
-    ancillary files such as README.md, _SUCCESS markers, and checksum (.crc) files.
+    Safely discovers all genuine Parquet data chunks in a directory.
     
-    Why this is critical:
-    In distributed computing, Spark writes metadata (_SUCCESS, .crc) and documentation
-    (README.md) into the output directory. Passing the directory directly to pyarrow
-    without filtering triggers 'Parquet magic bytes not found' exceptions when it attempts
-    to read markdown as columnar binary data.
+    Why this is critical for beginners to understand:
+    When Apache Spark writes Parquet files, it also creates helper files:
+      - '_SUCCESS' (empty zero-byte marker file)
+      - '.crc' hidden checksum validation files
+      - 'README.md' notes
+    If you tell pandas to read everything in the folder, it will try to read README.md
+    as a Parquet file and crash with "magic bytes not found"!
+    This function ignores those helper files and returns ONLY genuine *.parquet data files.
     """
     if not dir_path.exists():
         return []
-    
-    # Target only *.parquet files that do not start with hidden dots or underscores
+
+    # Find files ending in .parquet that don't start with '.' (hidden) or '_' (metadata)
     files = [
         str(f) for f in dir_path.glob("*.parquet")
         if f.is_file() and not f.name.startswith(".") and not f.name.startswith("_")
@@ -230,15 +303,15 @@ def get_parquet_files(dir_path: Path) -> List[str]:
 
 def load_zone_coordinates() -> Dict[str, Dict[str, float]]:
     """
-    Computes honest, geographically verified zone center coordinates derived directly
-    from the project's physical intersections (data/intersections.csv).
+    Computes authentic geographic center coordinates (centroids) for our 5 urban zones.
     
     Academic Rigor:
-    Rather than hardcoding arbitrary coordinates, this function groups the 20 actual
-    road network vertices by zone_id and computes the centroid (mean latitude, mean longitude).
+    Rather than guessing or hardcoding random map coordinates, this function reads
+    'data/intersections.csv', groups all 20 physical street intersections by zone,
+    and calculates the exact mathematical average latitude and longitude for each zone!
     """
     if not INTERSECTIONS_CSV.exists():
-        # Documented fallback if intersections.csv is absent
+        # Fallback dictionary if the CSV file hasn't been generated yet
         return {
             "zone_1": {"lat": 34.0498, "lon": -118.2526, "name": "Downtown Core"},
             "zone_2": {"lat": 34.1820, "lon": -118.4880, "name": "San Fernando Valley"},
@@ -246,14 +319,16 @@ def load_zone_coordinates() -> Dict[str, Dict[str, float]]:
             "zone_4": {"lat": 33.9601, "lon": -118.1885, "name": "South Central Corridor"},
             "zone_5": {"lat": 33.7645, "lon": -118.1832, "name": "Harbor & Outer Ring"},
         }
-    
+
     try:
+        # Read the intersections CSV file with pandas
         df_int = pd.read_csv(INTERSECTIONS_CSV)
+        # Group by 'zone_id' and calculate the mean (average) latitude and longitude
         centroids = df_int.groupby("zone_id").agg(
             center_lat=("latitude", "mean"),
             center_lon=("longitude", "mean")
         ).reset_index()
-        
+
         coord_map = {}
         for _, row in centroids.iterrows():
             coord_map[str(row["zone_id"])] = {
@@ -268,20 +343,15 @@ def load_zone_coordinates() -> Dict[str, Dict[str, float]]:
 
 def load_intersections_registry() -> Dict[int, Dict[str, Any]]:
     """
-    Loads data/intersections.csv into an integer-keyed registry mapping each intersection ID
-    to its exact physical attributes (name, zone_id, latitude, longitude).
-    
-    Academic Rigor:
-    Rather than assuming coordinates or relying on mock locations, this function directly
-    indexes the ground-truth physical intersection dataset established on Day 7.
+    Loads 'data/intersections.csv' into a Python dictionary keyed by intersection ID (1 to 20).
     
     Returns:
-        Dict[int, Dict[str, Any]]: Mapping of intersection ID -> {name, zone_id, lat, lon}
+        Dict[int, Dict[str, Any]]: Example: { 1: {"name": "Grand Ave & 1st St", "lat": 34.0549, "lon": -118.2498} }
     """
     if not INTERSECTIONS_CSV.exists():
         logger.warning(f"Intersections CSV not found at {INTERSECTIONS_CSV}")
         return {}
-    
+
     try:
         df_int = pd.read_csv(INTERSECTIONS_CSV)
         registry: Dict[int, Dict[str, Any]] = {}
@@ -304,47 +374,45 @@ def build_route_coordinates(
     intersections_registry: Dict[int, Dict[str, Any]]
 ) -> List[Tuple[float, float]]:
     """
-    Transforms a GraphX path (sequence of integer intersection IDs) into an ordered list
-    of geographic coordinate pairs (latitude, longitude) for Folium PolyLine rendering.
+    Transforms a sequence of intersection node IDs (like [1, 2, 14, 16, 15])
+    into an ordered list of geographic coordinate pairs: [(lat1, lon1), (lat2, lon2), ...].
+    These coordinates are used by Folium to draw the route vector line on the map!
     
-    Safety & Data Integrity Rules (Rule D & FR-8):
-    1. Rejects non-iterable, empty, or single-node paths (a valid route requires at least 2 vertices).
-    2. Coerces each node ID safely to native integer (handling NumPy int64 cleanly).
-    3. Validates that EVERY node in the path exists in the intersections registry.
-    4. If ANY node coordinate is missing, NaN, infinite, or falls outside the valid
-       geographic bounding box (32.0 <= lat <= 36.0, -120.0 <= lon <= -116.0), the function
-       ABORTS and returns an empty list. It NEVER draws a truncated or misleading partial line.
-    
-    Returns:
-        List[Tuple[float, float]]: Ordered list of (lat, lon) tuples.
+    Data Integrity & Safety Rules:
+      1. A path must contain at least 2 intersections to draw a line between them.
+      2. If ANY node in the route is missing from the registry, abort immediately!
+         (We NEVER want to draw a broken or misleading partial route).
+      3. Verifies coordinates fall inside Greater Southern California (32°N-36°N, -120°W to -116°W).
     """
     if path_nodes is None:
         return []
-    
+
     try:
-        # Handles lists, tuples, and numpy.ndarray elements safely
+        # Convert path elements safely into standard Python integers
         int_nodes = [int(n) for n in path_nodes]
     except (ValueError, TypeError):
         logger.warning(f"Malformed path elements in {path_nodes} - cannot convert to integers.")
         return []
-    
+
+    # Need at least two points to connect a line
     if len(int_nodes) < 2:
         return []
-    
+
     coords: List[Tuple[float, float]] = []
     for node_id in int_nodes:
+        # Safety Check: Node must exist in our registry
         if node_id not in intersections_registry:
             logger.warning(
                 f"Intersection ID {node_id} from route path not found in intersections registry. "
                 f"Aborting PolyLine generation to prevent drawing a misleading partial route."
             )
             return []
-        
+
         info = intersections_registry[node_id]
         lat = info.get("lat")
         lon = info.get("lon")
-        
-        # Bounding box and numeric validity check (Greater Southern California / LA basin)
+
+        # Sanity check: Ensure latitude and longitude are valid numbers within Los Angeles bounds
         if (
             lat is None 
             or lon is None 
@@ -360,19 +428,19 @@ def build_route_coordinates(
                 f"Aborting PolyLine generation."
             )
             return []
-            
+
         coords.append((lat, lon))
-        
+
     return coords
 
 
 def determine_speed_status(speed_kmph: float) -> Dict[str, str]:
     """
-    Maps effective traffic velocity to standard civil engineering Level of Service (LOS)
-    and visual color codes:
-      - Green  (> 60 km/h) : Free Flowing
-      - Orange (30 - 60 km/h): Moderate Traffic / Approaching Saturation
-      - Red    (< 30 km/h) : Congested / Breakdown
+    Level of Service (LOS) Speed Classifier:
+    Translates raw speed numbers (km/h) into traffic status and colors:
+      - Green  (>= 60 km/h)   : FREE_FLOWING (Traffic is moving smoothly)
+      - Orange (30 to 60 km/h): MODERATE (Traffic is approaching congestion)
+      - Red    (< 30 km/h)    : CONGESTED (Heavy gridlock / slowdown)
     """
     if speed_kmph >= 60.0:
         return {"status": "FREE_FLOWING", "color": "green", "hex": "#10B981"}
@@ -388,35 +456,16 @@ def evaluate_freshness(
     reference_time: Optional[datetime] = None
 ) -> Dict[str, Any]:
     """
-    Evaluates whether a source data timestamp is fresh or stale against a configured threshold.
+    Evaluates whether a dataset's timestamp is FRESH or STALE.
     
-    Academic Engineering Contract & Timezone Rules (Day 11 — Phase 3):
-    1. Reference Time: Defaults to current wall-clock UTC time (datetime.now(timezone.utc)).
-       Accepts an explicit reference_time for deterministic, sleep-free unit testing.
-    2. Missing Timestamps: If timestamp_val is None, empty string, or pd.isna/NaT,
-       returns is_stale=True with status 'MISSING_TIMESTAMP'. Never silently marks missing data as fresh.
-    3. Malformed Timestamps: If timestamp_val cannot be parsed by pd.to_datetime,
-       returns is_stale=True with status 'MALFORMED_TIMESTAMP' without crashing the application.
-    4. Timezone Safety:
-       - Timezone-aware inputs are normalized to UTC.
-       - Timezone-naive inputs are explicitly localized to UTC per documented repository convention.
-    5. Future Timestamps / Clock Skew:
-       - If timestamp is in the future by more than 5.0 seconds (age_seconds < -5.0),
-         returns is_stale=True with status 'FUTURE_CLOCK_SKEW' to avoid negative age staying fresh indefinitely.
-       - If timestamp is slightly in the future (-5.0 <= age_seconds < 0.0), treats age as 0.0s.
-    6. Boundary Conditions:
-       - Age strictly below threshold (age_seconds < threshold_seconds): is_stale=False, status 'FRESH'.
-       - Age exactly equal to threshold (age_seconds == threshold_seconds): is_stale=True, status 'STALE'.
-       - Age above threshold (age_seconds > threshold_seconds): is_stale=True, status 'STALE'.
-       
-    Returns:
-        Dict[str, Any]: {
-            "computed_at": Optional[str],  # ISO 8601 UTC string (e.g. '2012-03-01T08:10:00Z') or None
-            "is_stale": bool,
-            "age_seconds": Optional[float],
-            "freshness_status": str  # 'FRESH', 'STALE', 'MISSING_TIMESTAMP', 'MALFORMED_TIMESTAMP', 'FUTURE_CLOCK_SKEW'
-        }
+    How it works:
+      1. Converts the timestamp into UTC (Coordinated Universal Time).
+      2. Compares it against the current UTC clock (or an explicit reference_time).
+      3. Calculates data age: diff_seconds = (Current Time - Data Time).
+      4. If age >= threshold_seconds, flags as STALE; otherwise FRESH.
+      5. Handles edge cases: missing timestamps, unparseable dates, and future clock skew!
     """
+    # Case 1: Missing or blank timestamp
     if timestamp_val is None or (isinstance(timestamp_val, str) and not timestamp_val.strip()):
         return {
             "computed_at": None,
@@ -424,7 +473,7 @@ def evaluate_freshness(
             "age_seconds": None,
             "freshness_status": "MISSING_TIMESTAMP"
         }
-    
+
     try:
         if pd.isna(timestamp_val):
             return {
@@ -436,6 +485,7 @@ def evaluate_freshness(
     except Exception:
         pass
 
+    # Reference Time: Default to current wall-clock UTC time
     if reference_time is None:
         ref_utc = datetime.now(timezone.utc)
     else:
@@ -444,6 +494,7 @@ def evaluate_freshness(
         else:
             ref_utc = reference_time.astimezone(timezone.utc)
 
+    # Parse timestamp into a datetime object
     try:
         ts = pd.to_datetime(timestamp_val)
         if pd.isna(ts):
@@ -461,6 +512,7 @@ def evaluate_freshness(
             "freshness_status": "MALFORMED_TIMESTAMP"
         }
 
+    # Normalize timezone: convert local time into universal UTC ('Z')
     try:
         if ts.tzinfo is None:
             ts_utc = ts.tz_localize("UTC")
@@ -475,9 +527,12 @@ def evaluate_freshness(
             "freshness_status": "MALFORMED_TIMESTAMP"
         }
 
+    # Format into standard ISO-8601 string: "2026-10-23T12:00:00Z"
     iso_str = dt_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
+    # Calculate age in seconds
     diff_seconds = (ref_utc - dt_utc).total_seconds()
 
+    # Clock Skew Detection: If data timestamp is more than 5 seconds in the future
     if diff_seconds < -5.0:
         return {
             "computed_at": iso_str,
@@ -485,10 +540,12 @@ def evaluate_freshness(
             "age_seconds": round(diff_seconds, 2),
             "freshness_status": "FUTURE_CLOCK_SKEW"
         }
-    
+
+    # If timestamp is slightly ahead due to sub-second clock drift, clamp age to 0.0s
     if diff_seconds < 0.0:
         diff_seconds = 0.0
 
+    # Decision rule: Age >= threshold means STALE!
     is_stale = bool(diff_seconds >= threshold_seconds)
     status = "STALE" if is_stale else "FRESH"
 
@@ -502,14 +559,14 @@ def evaluate_freshness(
 
 def read_latest_predictions_dataframe() -> pd.DataFrame:
     """
-    Reads the production Parquet feature table afresh from disk and deterministically
-    extracts the single latest prediction record per zone based on window_start descending.
+    Reads the production Parquet feature table from disk on every request.
+    Extracts the latest prediction record for each zone.
     
-    Graceful Degradation Contract (Day 11 — Phase 4):
-    - Missing directory or no Parquet chunks -> HTTP 503 (DATA_SOURCE_UNAVAILABLE)
-    - Corrupted Parquet files -> HTTP 500 (DATA_PARSING_ERROR)
-    - Existing but genuinely empty store -> returns empty DataFrame (HTTP 200 with empty list)
-    - Missing required 'zone_id' column -> HTTP 500 (INVALID_DATA_SCHEMA)
+    Error Resilience Contracts:
+      - Missing folder -> raises HTTP 503 (DATA_SOURCE_UNAVAILABLE)
+      - Corrupted file -> raises HTTP 500 (DATA_PARSING_ERROR)
+      - Empty table    -> returns empty DataFrame
+      - Missing column -> raises HTTP 500 (INVALID_DATA_SCHEMA)
     """
     if not FEATURE_TABLE_DIR.exists():
         logger.warning(f"Traffic feature store directory does not exist at {FEATURE_TABLE_DIR}")
@@ -535,6 +592,7 @@ def read_latest_predictions_dataframe() -> pd.DataFrame:
         )
 
     try:
+        # Load the columnar Parquet files into a pandas DataFrame
         df = pd.read_parquet(parquet_files)
     except Exception as ex:
         logger.error(f"Failed to read Parquet feature store files: {ex}", exc_info=True)
@@ -547,12 +605,12 @@ def read_latest_predictions_dataframe() -> pd.DataFrame:
             }
         )
 
-    # Empty store handling: return empty DataFrame without crashing
+    # Empty store handling
     if df.empty:
         logger.info("Traffic feature store exists but contains 0 records.")
         return pd.DataFrame()
 
-    # Schema validation
+    # Schema validation: Ensure the mandatory 'zone_id' column exists
     if "zone_id" not in df.columns:
         logger.error(f"Traffic feature store is missing required 'zone_id' column. Columns: {list(df.columns)}")
         raise HTTPException(
@@ -564,25 +622,20 @@ def read_latest_predictions_dataframe() -> pd.DataFrame:
             }
         )
 
-    # Identify temporal ordering column (prefers window_start, falls back to window)
+    # Sort records by time window
     time_col = "window_start" if "window_start" in df.columns else ("window" if "window" in df.columns else None)
     if time_col:
         df = df.sort_values(time_col, ascending=True)
 
-    # Deterministically extract the single latest record per zone
+    # Take the single latest record for each zone
     latest_df = df.groupby("zone_id", as_index=False).tail(1).copy()
     return latest_df
 
 
 def read_recommended_routes_dataframe() -> pd.DataFrame:
     """
-    Reads the production GraphX recommended routes snapshot afresh from disk.
-    
-    Graceful Degradation Contract (Day 11 — Phase 4):
-    - Missing directory or no Parquet chunks -> HTTP 503 (ROUTES_UNAVAILABLE)
-    - Corrupted Parquet files -> HTTP 500 (DATA_PARSING_ERROR)
-    - Existing but genuinely empty snapshot -> returns empty DataFrame
-    - Missing required route columns -> HTTP 500 (INVALID_DATA_SCHEMA)
+    Reads the production GraphX recommended routes snapshot from disk.
+    Contains optimal shortest paths from Origin Node 1 to all destination vertices.
     """
     if not RECOMMENDED_ROUTES_DIR.exists():
         logger.warning(f"Recommended routes directory does not exist at {RECOMMENDED_ROUTES_DIR}")
@@ -624,6 +677,7 @@ def read_recommended_routes_dataframe() -> pd.DataFrame:
         logger.info("Recommended routes snapshot exists but contains 0 records.")
         return pd.DataFrame()
 
+    # Validate that essential route columns are present
     required_cols = {"origin_id", "destination_id", "path"}
     missing = required_cols - set(df.columns)
     if missing:
@@ -640,20 +694,16 @@ def read_recommended_routes_dataframe() -> pd.DataFrame:
     return df.sort_values("destination_id", ascending=True)
 
 
-# ------------------------------------------------------------------------------
-# 4. REST API Endpoints
-# ------------------------------------------------------------------------------
+# ==============================================================================
+# 🌐 STEP 11: REST API ENDPOINTS
+# ==============================================================================
 
 @app.get("/api/predictions", summary="Get Latest Zone Traffic Predictions")
 async def get_predictions() -> List[Dict[str, Any]]:
     """
-    Returns the latest velocity forecasts and operational metrics for all active zones.
-    
-    Academic Engineering Contract:
-    - Reads genuine Parquet feature store on every request (zero in-memory caching).
-    - Speed is extracted from 'predicted_speed_kmph', 'predicted_speed', or 'avg_speed_kmph'.
-    - PM2.5 / AQI is explicitly returned as null (never fabricated; documented as deferred per Day 6).
-    - Returns empty list HTTP 200 when feature store is genuinely empty.
+    REST Endpoint: GET /api/predictions
+    Returns the latest speed forecasts, Level of Service colors, and freshness
+    metadata for all 5 monitored urban zones.
     """
     df = read_latest_predictions_dataframe()
     if df.empty:
@@ -661,30 +711,32 @@ async def get_predictions() -> List[Dict[str, Any]]:
 
     centroids = load_zone_coordinates()
 
-    # Determine which speed column exists in this feature table
+    # Look for the speed column (support multiple naming conventions)
     speed_col = "predicted_speed_kmph" if "predicted_speed_kmph" in df.columns else (
         "predicted_speed" if "predicted_speed" in df.columns else "avg_speed_kmph"
     )
 
     results = []
+    # Loop through each zone record
     for _, row in df.iterrows():
         zone_id = str(row["zone_id"])
         speed_val = float(row[speed_col]) if pd.notnull(row.get(speed_col)) else 0.0
         status_info = determine_speed_status(speed_val)
 
-        # Coordinate resolution
+        # Coordinate lookup for this zone
         coords = centroids.get(zone_id, {"lat": 34.0200, "lon": -118.2900})
-        
-        # Window timestamp extraction
+
+        # Extract timestamps and zone metadata
         win_start = str(row["window_start"]) if pd.notnull(row.get("window_start")) else None
         win_end = str(row["window_end"]) if pd.notnull(row.get("window_end")) else None
         zone_name = str(row["zone_name"]) if pd.notnull(row.get("zone_name")) else zone_id
         record_count = int(row["traffic_record_count"]) if pd.notnull(row.get("traffic_record_count")) else 0
 
-        # Freshness evaluation based on latest completed window_end (Day 11 — Phase 3)
+        # Evaluate telemetry freshness (threshold = 900s / 15 min)
         win_end_val = row.get("window_end")
         freshness = evaluate_freshness(win_end_val, PREDICTIONS_STALE_THRESHOLD_SECONDS)
 
+        # Assemble JSON response object
         results.append({
             "zone_id": zone_id,
             "zone_name": zone_name,
@@ -705,17 +757,18 @@ async def get_predictions() -> List[Dict[str, Any]]:
             "freshness_status": freshness["freshness_status"]
         })
 
+    # Sort alphabetically by zone_id (zone_1, zone_2, ...)
     return sorted(results, key=lambda x: x["zone_id"])
 
 
 @app.get("/api/route", summary="Get Current Recommended Routes Snapshot")
 async def get_route(destination_id: Optional[int] = None) -> List[Dict[str, Any]]:
     """
-    Returns the current optimal shortest path recommendations from Origin 1 (Civic Center)
-    computed by the Scala Spark GraphX Pregel routing engine.
+    REST Endpoint: GET /api/route
+    Returns optimal shortest paths from Origin 1 (Civic Center) calculated by Scala GraphX.
     
     Optional query parameter:
-    - destination_id: Filter to a specific destination intersection (e.g. 8 or 15).
+      - ?destination_id=15: Filter to only return the path to destination Node 15.
     """
     df = read_recommended_routes_dataframe()
 
@@ -731,6 +784,7 @@ async def get_route(destination_id: Optional[int] = None) -> List[Dict[str, Any]
             )
         return []
 
+    # Filter by specific destination if requested
     if destination_id is not None:
         df = df[df["destination_id"] == destination_id]
         if df.empty:
@@ -745,11 +799,11 @@ async def get_route(destination_id: Optional[int] = None) -> List[Dict[str, Any]
 
     results = []
     for _, row in df.iterrows():
-        # Path array conversion to native Python int (ensures clean JSON serialization)
+        # Convert path elements into clean Python integers
         raw_path = row.get("path")
         path_list = [int(node) for node in raw_path] if hasattr(raw_path, "__iter__") else []
 
-        # Freshness evaluation based on genuine route snapshot computed_at (Day 11 — Phase 3)
+        # Evaluate route snapshot freshness (threshold = 180s / 3 min)
         route_freshness = evaluate_freshness(row.get("computed_at"), ROUTES_STALE_THRESHOLD_SECONDS)
 
         results.append({
@@ -775,18 +829,17 @@ async def get_route(destination_id: Optional[int] = None) -> List[Dict[str, Any]
 @app.get("/api/map", response_class=HTMLResponse, summary="Render Live Folium Heatmap with Route Overlay")
 async def get_map(destination_id: Optional[int] = 15) -> str:
     """
-    Generates and returns an interactive Folium Leaflet HTML map document freshly constructed
-    from the latest Parquet predictions and intersection coordinates, overlaid with the
-    genuine GraphX shortest path recommended route.
+    HTML Map Endpoint: GET /api/map
+    Generates an interactive Folium Leaflet HTML map directly from Parquet predictions.
     
-    Features:
-    - Base Tile: OpenStreetMap with clean typography.
-    - Centered on the greater Los Angeles metropolitan road network (34.018° N, -118.236° W).
-    - 5 Zone Centroid CircleMarkers colored dynamically by live predicted velocity.
-    - 20 Physical intersection markers with zone affiliation.
-    - Genuine GraphX Recommended Route PolyLine connecting ordered intersection coordinates (FR-8).
-    - Prominent Origin Node 1 and Destination Node markers.
-    - Clean visual map legend explaining speed thresholds and route overlay.
+    Layers rendered:
+      1. OpenStreetMap dark canvas centered on Los Angeles.
+      2. 5 Zone heat circles colored by live predicted speed.
+      3. 20 Physical intersection markers (road network nodes).
+      4. Dynamic GraphX PolyLine connecting nodes from Origin 1 to Destination (Node 15).
+         - Royal Blue (#2563EB) when Fresh
+         - Muted Gray (#6B7280) when Stale
+      5. Floating visual legend explaining colors and thresholds.
     """
     predictions_df = read_latest_predictions_dataframe()
     centroids = load_zone_coordinates()
@@ -795,15 +848,17 @@ async def get_map(destination_id: Optional[int] = 15) -> str:
         "predicted_speed" if "predicted_speed" in predictions_df.columns else "avg_speed_kmph"
     )
 
-    # Initialize Folium Map centered across greater Los Angeles
+    # Initialize the Folium map centered on Los Angeles (34.018° N, -118.236° W)
     m = folium.Map(
         location=[34.0180, -118.2356],
         zoom_start=11,
         tiles="OpenStreetMap",
-        control_scale=True
+        control_scale=True # Adds a scale bar (km/miles) at the bottom left
     )
 
-    # 1. Plot Zone Heatmap Circles
+    # -----------------------------------------------------------------
+    # LAYER 1: Zone Heatmap Circles
+    # -----------------------------------------------------------------
     for _, row in predictions_df.iterrows():
         zone_id = str(row["zone_id"])
         zone_name = str(row.get("zone_name", zone_id))
@@ -813,7 +868,7 @@ async def get_map(destination_id: Optional[int] = 15) -> str:
 
         coords = centroids.get(zone_id, {"lat": 34.0200, "lon": -118.2900})
 
-        # Structured HTML popup
+        # Clean HTML card displayed when clicking on a zone
         popup_html = f"""
         <div style="font-family: Arial, sans-serif; min-width: 180px; padding: 4px;">
             <h4 style="margin: 0 0 6px 0; color: #1F2937; border-bottom: 2px solid {status_info['hex']}; padding-bottom: 4px;">
@@ -828,10 +883,10 @@ async def get_map(destination_id: Optional[int] = 15) -> str:
         </div>
         """
 
-        # Outer pulsing circle representing zone influence
+        # Semi-transparent outer circle representing the zone's geographical radius
         folium.Circle(
             location=[coords["lat"], coords["lon"]],
-            radius=4500,
+            radius=4500, # 4.5 kilometer radius
             color=status_info["color"],
             fill=True,
             fill_color=status_info["color"],
@@ -840,7 +895,7 @@ async def get_map(destination_id: Optional[int] = 15) -> str:
             tooltip=f"{zone_name}: {speed_val:.1f} km/h ({status_info['status']})"
         ).add_to(m)
 
-        # Core marker with click popup
+        # Crisp inner dot marking the zone's exact centroid
         folium.CircleMarker(
             location=[coords["lat"], coords["lon"]],
             radius=12,
@@ -852,7 +907,9 @@ async def get_map(destination_id: Optional[int] = 15) -> str:
             popup=folium.Popup(popup_html, max_width=250)
         ).add_to(m)
 
-    # 2. Add Physical Intersections (Road Network Nodes)
+    # -----------------------------------------------------------------
+    # LAYER 2: Physical Intersections (Road Network Nodes)
+    # -----------------------------------------------------------------
     if INTERSECTIONS_CSV.exists():
         try:
             df_int = pd.read_csv(INTERSECTIONS_CSV)
@@ -876,7 +933,9 @@ async def get_map(destination_id: Optional[int] = 15) -> str:
         except Exception as ex:
             logger.warning(f"Could not plot intersections: {ex}")
 
-    # 3. Add Recommended Route PolyLine (FR-8: Dynamic Route Overlay)
+    # -----------------------------------------------------------------
+    # LAYER 3: Recommended Route PolyLine (Pregel SSSP Route Overlay)
+    # -----------------------------------------------------------------
     intersections_reg = load_intersections_registry()
     route_rendered: bool = False
     if destination_id is not None and destination_id > 0:
@@ -888,6 +947,7 @@ async def get_map(destination_id: Optional[int] = 15) -> str:
                 is_reachable = bool(r_row.get("is_reachable", True))
                 if is_reachable:
                     raw_path = r_row.get("path")
+                    # Convert node sequence into ordered GPS coordinates
                     route_coords = build_route_coordinates(raw_path, intersections_reg)
                     if route_coords:
                         eta_min = float(r_row.get("total_travel_time_minutes", 0.0))
@@ -895,14 +955,15 @@ async def get_map(destination_id: Optional[int] = 15) -> str:
                         dest_id = int(r_row.get("destination_id", destination_id))
                         path_str = str(r_row.get("path_formatted", f"{raw_path}"))
 
-                        # Freshness evaluation for recommended route (Day 11 — Phase 3)
+                        # Evaluate freshness of the route calculation
                         route_freshness = evaluate_freshness(r_row.get("computed_at"), ROUTES_STALE_THRESHOLD_SECONDS)
                         is_route_stale = route_freshness["is_stale"]
                         route_age = route_freshness["age_seconds"]
                         route_age_str = f"{route_age:.0f}s" if route_age is not None else "Unknown"
 
+                        # Visual differentiation: Fresh is Royal Blue; Stale is Muted Gray
                         if is_route_stale:
-                            route_color = "#6B7280"  # Gray PolyLine for stale route
+                            route_color = "#6B7280"  # Gray PolyLine
                             route_tooltip = f"STALE ROUTE: Recommended Route Origin {orig_id} &rarr; Destination {dest_id} (ETA: {eta_min:.1f} min | Age: {route_age_str})"
                             stale_badge = f"""
                             <div style="background: #FEE2E2; border: 1px solid #EF4444; color: #991B1B; padding: 4px 8px; border-radius: 4px; font-weight: 600; font-size: 11px; margin-bottom: 8px;">
@@ -910,7 +971,7 @@ async def get_map(destination_id: Optional[int] = 15) -> str:
                             </div>
                             """
                         else:
-                            route_color = "#2563EB"  # Royal blue for fresh route
+                            route_color = "#2563EB"  # Royal Blue PolyLine
                             route_tooltip = f"Recommended Route: Origin {orig_id} &rarr; Destination {dest_id} (ETA: {eta_min:.1f} min | Fresh)"
                             stale_badge = f"""
                             <div style="background: #ECFDF5; border: 1px solid #10B981; color: #065F46; padding: 4px 8px; border-radius: 4px; font-weight: 600; font-size: 11px; margin-bottom: 8px;">
@@ -934,7 +995,7 @@ async def get_map(destination_id: Optional[int] = 15) -> str:
                         </div>
                         """
 
-                        # Draw PolyLine along ordered intersection coordinates
+                        # Draw the vector PolyLine on the map
                         folium.PolyLine(
                             locations=route_coords,
                             color=route_color,
@@ -945,7 +1006,7 @@ async def get_map(destination_id: Optional[int] = 15) -> str:
                         ).add_to(m)
                         route_rendered = True
 
-                        # Prominent Origin Indicator (Node 1)
+                        # Marker at Origin Node 1 (Civic Center)
                         folium.CircleMarker(
                             location=route_coords[0],
                             radius=8,
@@ -957,7 +1018,7 @@ async def get_map(destination_id: Optional[int] = 15) -> str:
                             tooltip=f"Route Origin: Node {orig_id}"
                         ).add_to(m)
 
-                        # Prominent Destination Pin Marker
+                        # Marker at Destination Node
                         folium.CircleMarker(
                             location=route_coords[-1],
                             radius=8,
@@ -968,21 +1029,12 @@ async def get_map(destination_id: Optional[int] = 15) -> str:
                             fill_opacity=1.0,
                             tooltip=f"Route Destination: Node {dest_id} (ETA: {eta_min:.1f}m)"
                         ).add_to(m)
-                    else:
-                        logger.warning(
-                            f"build_route_coordinates returned empty for destination {destination_id}. "
-                            f"Skipping route overlay to prevent drawing a misleading partial route."
-                        )
-                else:
-                    logger.info(f"Destination {destination_id} is flagged as unreachable in route snapshot.")
-            else:
-                logger.info(f"Destination {destination_id} not found in route snapshot.")
         except Exception as ex:
-            # Graceful degradation: If route snapshot cannot be loaded or is missing,
-            # log diagnostic and continue rendering heatmap without crashing.
             logger.warning(f"Could not load or render route overlay for destination {destination_id}: {ex}")
 
-    # 4. Add Custom Floating Map Legend
+    # -----------------------------------------------------------------
+    # LAYER 4: Custom Floating Map Legend
+    # -----------------------------------------------------------------
     if destination_id is not None and destination_id > 0:
         if route_rendered:
             route_legend_entries = """
@@ -1047,18 +1099,19 @@ async def get_map(destination_id: Optional[int] = 15) -> str:
     """
     m.get_root().html.add_child(folium.Element(legend_html))
 
-    # Render complete HTML document
+    # Render into a complete HTML string and return to browser
     return m.get_root().render()
 
 
-# ------------------------------------------------------------------------------
-# 5. Static Files & Root Dashboard Serving
-# ------------------------------------------------------------------------------
+# ==============================================================================
+# 📄 STEP 12: STATIC FILE SERVING & ROOT ROUTE
+# ==============================================================================
 
 @app.get("/", response_class=FileResponse, summary="Serve Browser Dashboard")
 async def serve_dashboard():
     """
-    Serves the primary auto-refreshing Urbanix browser dashboard.
+    Root Endpoint: GET /
+    Delivers our main 'index.html' dashboard page directly to the operator's web browser.
     """
     index_file = STATIC_DIR / "index.html"
     if not index_file.exists():
@@ -1068,17 +1121,21 @@ async def serve_dashboard():
         )
     return FileResponse(index_file)
 
-# Mount static files directory for CSS/assets if needed
+# Mount the static directory so the browser can request /static/styles.css if needed
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
-# ------------------------------------------------------------------------------
-# 6. Local Server Execution Hook
-# ------------------------------------------------------------------------------
+# ==============================================================================
+# 🚀 STEP 13: LOCAL SERVER ENTRYPOINT
+# ==============================================================================
+# This block runs when you launch the file directly from the terminal:
+#   python dashboard/main.py
 if __name__ == "__main__":
+    # 'uvicorn' is an lightning-fast ASGI web server implementation for Python
     import uvicorn
     print("=" * 80)
     print("  URBANIX DAY 10: GEOSPATIAL DASHBOARD BACKEND")
     print("  Starting Uvicorn web server at http://localhost:8000")
     print("=" * 80)
+    # Start server listening on localhost port 8000 with hot-reload enabled
     uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
