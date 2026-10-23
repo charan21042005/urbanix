@@ -86,13 +86,25 @@ def run_smoke_test():
         print(f"       HTML length: {len(r_map.text)} bytes")
         assert r_map.status_code == 200
         assert "leaflet" in r_map.text.lower()
-        assert "folium" in r_map.text.lower() or "folium_map" in r_map.text.lower() or "map_" in r_map.text.lower()
+        assert "polyline" in r_map.text.lower() or "l.polyline" in r_map.text.lower()
+        assert "Recommended Route" in r_map.text
     except Exception as e:
         print(f"[FAIL] GET /api/map failed: {e}")
         return False
 
+    # 7. GET /api/map?destination_id=15
+    try:
+        r_map_15 = requests.get(f"{BASE_URL}/api/map?destination_id=15", timeout=5)
+        print(f"[PASS] GET /api/map?destination_id=15 -> HTTP {r_map_15.status_code}")
+        assert r_map_15.status_code == 200
+        assert "Node 15" in r_map_15.text
+        assert "19.02" in r_map_15.text or "19.0" in r_map_15.text
+    except Exception as e:
+        print(f"[FAIL] GET /api/map?destination_id=15 failed: {e}")
+        return False
+
     print("=" * 60)
-    print("ALL 6 LIVE ENDPOINT SMOKE TESTS PASSED!")
+    print("ALL 7 LIVE ENDPOINT SMOKE TESTS PASSED!")
     print("=" * 60)
     return True
 

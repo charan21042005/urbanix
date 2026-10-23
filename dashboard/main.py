@@ -39,12 +39,19 @@
 
 import os
 import glob
+import logging
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 
 import pandas as pd
 import folium
 from folium.plugins import MiniMap
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] [Urbanix-Dashboard] %(message)s",
+)
+logger = logging.getLogger("UrbanixDashboard")
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -151,8 +158,108 @@ def load_zone_coordinates() -> Dict[str, Dict[str, float]]:
             }
         return coord_map
     except Exception as ex:
-        print(f"[WARN] Failed to compute zone centroids from CSV: {ex}")
+        logger.warning(f"Failed to compute zone centroids from CSV: {ex}")
         return {}
+
+
+def load_intersections_registry() -> Dict[int, Dict[str, Any]]:
+    """
+    Loads data/intersections.csv into an integer-keyed registry mapping each intersection ID
+    to its exact physical attributes (name, zone_id, latitude, longitude).
+    
+    Academic Rigor:
+    Rather than assuming coordinates or relying on mock locations, this function directly
+    indexes the ground-truth physical intersection dataset established on Day 7.
+    
+    Returns:
+        Dict[int, Dict[str, Any]]: Mapping of intersection ID -> {name, zone_id, lat, lon}
+    """
+    if not INTERSECTIONS_CSV.exists():
+        logger.warning(f"Intersections CSV not found at {INTERSECTIONS_CSV}")
+        return {}
+    
+    try:
+        df_int = pd.read_csv(INTERSECTIONS_CSV)
+        registry: Dict[int, Dict[str, Any]] = {}
+        for _, row in df_int.iterrows():
+            node_id = int(row["id"])
+            registry[node_id] = {
+                "name": str(row["name"]),
+                "zone_id": str(row["zone_id"]),
+                "lat": float(row["latitude"]),
+                "lon": float(row["longitude"]),
+            }
+        return registry
+    except Exception as ex:
+        logger.error(f"Failed to load intersections registry from {INTERSECTIONS_CSV}: {ex}")
+        return {}
+
+
+def build_route_coordinates(
+    path_nodes: Any,
+    intersections_registry: Dict[int, Dict[str, Any]]
+) -> List[Tuple[float, float]]:
+    """
+    Transforms a GraphX path (sequence of integer intersection IDs) into an ordered list
+    of geographic coordinate pairs (latitude, longitude) for Folium PolyLine rendering.
+    
+    Safety & Data Integrity Rules (Rule D & FR-8):
+    1. Rejects non-iterable, empty, or single-node paths (a valid route requires at least 2 vertices).
+    2. Coerces each node ID safely to native integer (handling NumPy int64 cleanly).
+    3. Validates that EVERY node in the path exists in the intersections registry.
+    4. If ANY node coordinate is missing, NaN, infinite, or falls outside the valid
+       geographic bounding box (32.0 <= lat <= 36.0, -120.0 <= lon <= -116.0), the function
+       ABORTS and returns an empty list. It NEVER draws a truncated or misleading partial line.
+    
+    Returns:
+        List[Tuple[float, float]]: Ordered list of (lat, lon) tuples.
+    """
+    if path_nodes is None:
+        return []
+    
+    try:
+        # Handles lists, tuples, and numpy.ndarray elements safely
+        int_nodes = [int(n) for n in path_nodes]
+    except (ValueError, TypeError):
+        logger.warning(f"Malformed path elements in {path_nodes} - cannot convert to integers.")
+        return []
+    
+    if len(int_nodes) < 2:
+        return []
+    
+    coords: List[Tuple[float, float]] = []
+    for node_id in int_nodes:
+        if node_id not in intersections_registry:
+            logger.warning(
+                f"Intersection ID {node_id} from route path not found in intersections registry. "
+                f"Aborting PolyLine generation to prevent drawing a misleading partial route."
+            )
+            return []
+        
+        info = intersections_registry[node_id]
+        lat = info.get("lat")
+        lon = info.get("lon")
+        
+        # Bounding box and numeric validity check (Greater Southern California / LA basin)
+        if (
+            lat is None 
+            or lon is None 
+            or not isinstance(lat, (int, float)) 
+            or not isinstance(lon, (int, float))
+            or pd.isna(lat) 
+            or pd.isna(lon)
+            or not (32.0 <= lat <= 36.0)
+            or not (-120.0 <= lon <= -116.0)
+        ):
+            logger.warning(
+                f"Invalid or out-of-bounds coordinates for intersection {node_id}: ({lat}, {lon}). "
+                f"Aborting PolyLine generation."
+            )
+            return []
+            
+        coords.append((lat, lon))
+        
+    return coords
 
 
 def determine_speed_status(speed_kmph: float) -> Dict[str, str]:
@@ -331,18 +438,21 @@ async def get_route(destination_id: Optional[int] = None) -> List[Dict[str, Any]
     return results
 
 
-@app.get("/api/map", response_class=HTMLResponse, summary="Render Live Folium Heatmap")
-async def get_map() -> str:
+@app.get("/api/map", response_class=HTMLResponse, summary="Render Live Folium Heatmap with Route Overlay")
+async def get_map(destination_id: Optional[int] = 15) -> str:
     """
     Generates and returns an interactive Folium Leaflet HTML map document freshly constructed
-    from the latest Parquet predictions and intersection coordinates.
+    from the latest Parquet predictions and intersection coordinates, overlaid with the
+    genuine GraphX shortest path recommended route.
     
     Features:
     - Base Tile: OpenStreetMap with clean typography.
     - Centered on the greater Los Angeles metropolitan road network (34.018° N, -118.236° W).
     - 5 Zone Centroid CircleMarkers colored dynamically by live predicted velocity.
-    - Detailed popups showing Zone Name, Speed, Window Timestamp, and Level of Service.
-    - Clean visual map legend explaining the speed thresholds.
+    - 20 Physical intersection markers with zone affiliation.
+    - Genuine GraphX Recommended Route PolyLine connecting ordered intersection coordinates (FR-8).
+    - Prominent Origin Node 1 and Destination Node markers.
+    - Clean visual map legend explaining speed thresholds and route overlay.
     """
     predictions_df = read_latest_predictions_dataframe()
     centroids = load_zone_coordinates()
@@ -430,9 +540,89 @@ async def get_map() -> str:
                     tooltip=f"Intersection {i_id}: {i_name} ({i_zone})"
                 ).add_to(m)
         except Exception as ex:
-            print(f"[WARN] Could not plot intersections: {ex}")
+            logger.warning(f"Could not plot intersections: {ex}")
 
-    # 3. Add Custom Floating Map Legend
+    # 3. Add Recommended Route PolyLine (FR-8: Dynamic Route Overlay)
+    intersections_reg = load_intersections_registry()
+    if destination_id is not None and destination_id > 0:
+        try:
+            routes_df = read_recommended_routes_dataframe()
+            target_route = routes_df[routes_df["destination_id"] == destination_id]
+            if not target_route.empty:
+                r_row = target_route.iloc[0]
+                is_reachable = bool(r_row.get("is_reachable", True))
+                if is_reachable:
+                    raw_path = r_row.get("path")
+                    route_coords = build_route_coordinates(raw_path, intersections_reg)
+                    if route_coords:
+                        eta_min = float(r_row.get("total_travel_time_minutes", 0.0))
+                        orig_id = int(r_row.get("origin_id", 1))
+                        dest_id = int(r_row.get("destination_id", destination_id))
+                        path_str = str(r_row.get("path_formatted", f"{raw_path}"))
+
+                        route_tooltip = f"Recommended Route: Origin {orig_id} &rarr; Destination {dest_id} (ETA: {eta_min:.1f} min)"
+                        route_popup_html = f"""
+                        <div style="font-family: Arial, sans-serif; min-width: 200px; padding: 4px;">
+                            <h4 style="margin: 0 0 6px 0; color: #1E40AF; border-bottom: 2px solid #2563EB; padding-bottom: 4px;">
+                                Recommended Route (Pregel SSSP)
+                            </h4>
+                            <table style="width: 100%; font-size: 12px; line-height: 1.5;">
+                                <tr><td><b>Origin:</b></td><td>Node {orig_id} (Civic Center)</td></tr>
+                                <tr><td><b>Destination:</b></td><td>Node {dest_id}</td></tr>
+                                <tr><td><b>Path:</b></td><td><code>{path_str}</code></td></tr>
+                                <tr><td><b>Optimal ETA:</b></td><td><b style="color: #2563EB;">{eta_min:.2f} mins</b></td></tr>
+                            </table>
+                        </div>
+                        """
+
+                        # Draw PolyLine along ordered intersection coordinates
+                        folium.PolyLine(
+                            locations=route_coords,
+                            color="#2563EB",
+                            weight=5,
+                            opacity=0.85,
+                            tooltip=route_tooltip,
+                            popup=folium.Popup(route_popup_html, max_width=280)
+                        ).add_to(m)
+
+                        # Prominent Origin Indicator (Node 1)
+                        folium.CircleMarker(
+                            location=route_coords[0],
+                            radius=8,
+                            color="#1E40AF",
+                            weight=3,
+                            fill=True,
+                            fill_color="#3B82F6",
+                            fill_opacity=1.0,
+                            tooltip=f"Route Origin: Node {orig_id}"
+                        ).add_to(m)
+
+                        # Prominent Destination Pin Marker
+                        folium.CircleMarker(
+                            location=route_coords[-1],
+                            radius=8,
+                            color="#991B1B",
+                            weight=3,
+                            fill=True,
+                            fill_color="#EF4444",
+                            fill_opacity=1.0,
+                            tooltip=f"Route Destination: Node {dest_id} (ETA: {eta_min:.1f}m)"
+                        ).add_to(m)
+                    else:
+                        logger.warning(
+                            f"build_route_coordinates returned empty for destination {destination_id}. "
+                            f"Skipping route overlay to prevent drawing a misleading partial route."
+                        )
+                else:
+                    logger.info(f"Destination {destination_id} is flagged as unreachable in route snapshot.")
+            else:
+                logger.info(f"Destination {destination_id} not found in route snapshot.")
+        except Exception as ex:
+            # Graceful degradation: If route snapshot cannot be loaded or is missing,
+            # log diagnostic and continue rendering heatmap without crashing.
+            logger.warning(f"Could not load or render route overlay for destination {destination_id}: {ex}")
+
+    # 4. Add Custom Floating Map Legend
     legend_html = """
     <div style="
         position: fixed;
@@ -460,6 +650,10 @@ async def get_map() -> str:
         <div style="display: flex; align-items: center; margin-top: 4px;">
             <span style="height: 12px; width: 12px; background-color: #EF4444; border-radius: 50%; display: inline-block; margin-right: 8px;"></span>
             <span>Congested (&lt; 30 km/h)</span>
+        </div>
+        <div style="display: flex; align-items: center; margin-top: 4px;">
+            <span style="height: 4px; width: 16px; background-color: #2563EB; display: inline-block; margin-right: 8px;"></span>
+            <span>Recommended Route (Pregel SSSP)</span>
         </div>
         <div style="display: flex; align-items: center; margin-top: 4px;">
             <span style="height: 8px; width: 8px; background-color: #3B82F6; border-radius: 50%; display: inline-block; margin-right: 10px; margin-left: 2px;"></span>

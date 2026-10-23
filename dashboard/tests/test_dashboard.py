@@ -17,6 +17,8 @@ from main import (
     app,
     get_parquet_files,
     load_zone_coordinates,
+    load_intersections_registry,
+    build_route_coordinates,
     determine_speed_status,
     REPO_ROOT,
     FEATURE_TABLE_DIR,
@@ -210,3 +212,116 @@ def test_no_mock_data():
     zone_1 = next(z for z in data if z["zone_id"] == "zone_1")
     # Zone 1 speed in baseline feature table is 77.67 km/h
     assert abs(zone_1["predicted_speed_kmph"] - 77.67) < 0.1
+
+
+# ------------------------------------------------------------------------------
+# 4. Route Overlay & Coordinate Verification Tests (Day 11 — FR-8)
+# ------------------------------------------------------------------------------
+
+def test_load_intersections_registry():
+    """Verify that intersections registry indexes all 20 nodes with valid numeric lat/lon."""
+    registry = load_intersections_registry()
+    assert len(registry) == 20, f"Expected 20 intersections, got {len(registry)}"
+    
+    # Check Node 1 (Origin)
+    assert 1 in registry
+    assert registry[1]["name"] == "Grand Ave & 1st St"
+    assert registry[1]["zone_id"] == "zone_1"
+    assert abs(registry[1]["lat"] - 34.0549) < 0.001
+    assert abs(registry[1]["lon"] - (-118.2498)) < 0.001
+    
+    # Check Node 15 (Canonical destination)
+    assert 15 in registry
+    assert abs(registry[15]["lat"] - 33.9984) < 0.001
+    assert abs(registry[15]["lon"] - (-118.0874)) < 0.001
+
+
+def test_build_route_coordinates_ordered_sequence():
+    """
+    Verify that build_route_coordinates transforms path [1, 2, 14, 16, 15] into
+    the exact ordered sequence of physical latitude and longitude coordinates.
+    """
+    registry = load_intersections_registry()
+    path = [1, 2, 14, 16, 15]
+    coords = build_route_coordinates(path, registry)
+    
+    assert len(coords) == 5, f"Expected 5 coordinate pairs, got {len(coords)}"
+    
+    # Verify exact coordinate sequence matches the path node order
+    assert coords[0] == (registry[1]["lat"], registry[1]["lon"])
+    assert coords[1] == (registry[2]["lat"], registry[2]["lon"])
+    assert coords[2] == (registry[14]["lat"], registry[14]["lon"])
+    assert coords[3] == (registry[16]["lat"], registry[16]["lon"])
+    assert coords[4] == (registry[15]["lat"], registry[15]["lon"])
+
+
+def test_build_route_coordinates_aborts_on_missing_node():
+    """
+    Data Integrity Test: If ANY node in the route path is missing from the registry,
+    build_route_coordinates MUST abort and return an empty list. It must NEVER draw
+    a partial or misleading route.
+    """
+    registry = load_intersections_registry()
+    path_with_missing_node = [1, 2, 999, 15]  # Node 999 does not exist
+    coords = build_route_coordinates(path_with_missing_node, registry)
+    assert coords == [], f"Expected empty list on missing node ID, got {coords}"
+
+
+def test_build_route_coordinates_aborts_on_invalid_coordinates():
+    """
+    Data Integrity Test: If an intersection has out-of-bounds latitude (e.g. 55.0 N)
+    or NaN, build_route_coordinates must abort and return an empty list.
+    """
+    mock_registry = {
+        1: {"name": "Node 1", "zone_id": "zone_1", "lat": 34.0549, "lon": -118.2498},
+        2: {"name": "Node 2", "zone_id": "zone_1", "lat": 55.0000, "lon": -118.2543},  # Out of bounds
+    }
+    coords = build_route_coordinates([1, 2], mock_registry)
+    assert coords == [], "Expected empty list on out-of-bounds latitude"
+
+
+def test_build_route_coordinates_handles_malformed_inputs():
+    """Verify safe handling of empty paths, single-node paths, None, and non-numeric lists."""
+    registry = load_intersections_registry()
+    assert build_route_coordinates([], registry) == []
+    assert build_route_coordinates([1], registry) == []  # Single node cannot form an edge
+    assert build_route_coordinates(None, registry) == []
+    assert build_route_coordinates(["invalid", "path"], registry) == []
+
+
+def test_get_map_with_route_overlay_destination_15():
+    """
+    Contract Test: Verify GET /api/map?destination_id=15 renders Folium PolyLine
+    for the baseline GraphX route [1, 2, 14, 16, 15] with ETA and origin/destination markers.
+    """
+    response = client.get("/api/map?destination_id=15")
+    assert response.status_code == 200
+    html = response.text
+    
+    # Check that PolyLine is rendered
+    assert "polyline" in html.lower() or "l.polyline" in html.lower()
+    
+    # Check that route metadata appears in HTML / tooltip / popups
+    assert "Recommended Route" in html
+    assert "Node 1" in html
+    assert "Node 15" in html
+    assert "19.02" in html or "19.0" in html
+    
+    # Check that legend contains route entry
+    assert "Recommended Route (Pregel SSSP)" in html
+    
+    # Check that zone circles still exist
+    assert "Urbanix Traffic Legend" in html
+
+
+def test_get_map_graceful_on_nonexistent_destination():
+    """
+    Graceful Degradation Test: If an invalid or uncomputed destination ID (e.g. 999) is requested,
+    GET /api/map must NOT crash with 500. It must gracefully render the zone heatmap.
+    """
+    response = client.get("/api/map?destination_id=999")
+    assert response.status_code == 200
+    html = response.text
+    assert "Urbanix Traffic Legend" in html
+    assert "Free Flowing" in html
+
