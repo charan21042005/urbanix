@@ -1,80 +1,134 @@
 <!DOCTYPE html>
+<!-- 
+  ========================================================================================
+  🌟 URBANIX — SMART CITY GEOSPATIAL TRAFFIC & ENVIRONMENTAL OPERATOR DASHBOARD
+  ========================================================================================
+  This HTML file is the single-page web interface (frontend) for the Urbanix platform.
+  It provides city operators with real-time visibility into:
+    1. Traffic speeds across urban zones (METR-LA telemetry)
+    2. Air quality (PM2.5) & weather conditions
+    3. Machine Learning near-future speed forecasts (Spark MLlib)
+    4. Congestion-aware optimal emergency vehicle routes (Scala GraphX Pregel SSSP)
+    5. Telemetry data freshness & system health status
+
+  Designed with modern dark-mode glassmorphic aesthetics, zero-cache live polling,
+  and graceful degradation if backend microservices experience temporary delays.
+  ========================================================================================
+-->
 <html lang="en">
 <head>
+    <!-- Standard character encoding: UTF-8 supports international characters and emojis -->
     <meta charset="UTF-8">
+
+    <!-- Responsive viewport tag: ensures proper scaling on mobile phones, tablets, and desktops -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <!-- Browser tab title: clearly identifies the dashboard and platform name -->
     <title>Urbanix — Smart City Geospatial Traffic & Environmental Dashboard</title>
+
+    <!-- 
+      Preconnect to Google Fonts domains:
+      This establishes early handshake connections (DNS lookup, TCP, TLS) to Google Fonts servers,
+      significantly speeding up typography font file downloads.
+    -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+
+    <!-- 
+      Google Web Fonts:
+      - 'Inter': Clean, modern, highly legible sans-serif font for UI titles and body text.
+      - 'JetBrains Mono': Fixed-width monospace font designed specifically for readable numbers,
+        timestamps, and telemetry metrics.
+    -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
     <style>
         /* =====================================================================
-           Urbanix Day 10 Design System — Modern Dark Glassmorphic Dashboard
+           🎨 CSS DESIGN SYSTEM & TOKENS (:root)
+           Centralized CSS variables for consistent colors, fonts, and dark theme.
+           Changing a variable here automatically updates the entire dashboard!
            ===================================================================== */
         :root {
-            --bg-primary: #0F172A;
-            --bg-secondary: #1E293B;
-            --bg-card: rgba(30, 41, 59, 0.85);
-            --border-card: rgba(255, 255, 255, 0.08);
-            --text-primary: #F8FAFC;
-            --text-secondary: #94A3B8;
-            --text-muted: #64748B;
-            --accent-blue: #3B82F6;
-            --accent-cyan: #06B6D4;
-            --color-green: #10B981;
-            --color-orange: #F59E0B;
-            --color-red: #EF4444;
+            /* Background tones: Deep slate navy blues for a premium dark command-center feel */
+            --bg-primary: #0F172A;                      /* Main application backdrop (slate-900) */
+            --bg-secondary: #1E293B;                    /* Header and navigation panels (slate-800) */
+            --bg-card: rgba(30, 41, 59, 0.85);          /* Glassmorphic semi-transparent card panels */
+            --border-card: rgba(255, 255, 255, 0.08);   /* Subtle 1px translucent card boundary border */
+
+            /* Typography colors: Clear hierarchy for readability against dark backgrounds */
+            --text-primary: #F8FAFC;                    /* High-contrast crisp white for headings and values */
+            --text-secondary: #94A3B8;                  /* Soft slate silver for secondary captions */
+            --text-muted: #64748B;                      /* Dimmed muted gray for subtle labels and timestamps */
+
+            /* Accent highlights: Tech glow cyan and sapphire blue */
+            --accent-blue: #3B82F6;                     /* Electric blue for buttons and active states */
+            --accent-cyan: #06B6D4;                     /* Cyan for dispatch nodes and active spinners */
+
+            /* Status & Level of Service (LOS) semantic colors */
+            --color-green: #10B981;                     /* Green: Free-flowing traffic & fresh telemetry */
+            --color-orange: #F59E0B;                    /* Amber/Orange: Moderate congestion & stale telemetry */
+            --color-red: #EF4444;                       /* Red: Severe congestion & error conditions */
+
+            /* Font family definitions */
             --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
             --font-mono: 'JetBrains Mono', monospace;
         }
 
+        /* Global CSS Reset: eliminates browser default margins/paddings and standardizes box sizing */
         * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
+            box-sizing: border-box; /* Width & height include padding and borders, avoiding overflow bugs */
+            margin: 0;              /* Remove default browser margin */
+            padding: 0;             /* Remove default browser padding */
         }
 
+        /* Body layout: locked to exactly 100% of the viewport height with no double scrollbars */
         body {
-            font-family: var(--font-sans);
-            background-color: var(--bg-primary);
-            color: var(--text-primary);
-            height: 100vh;
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
-            -webkit-font-smoothing: antialiased;
+            font-family: var(--font-sans);      /* Use our clean Inter font */
+            background-color: var(--bg-primary); /* Slate dark backdrop */
+            color: var(--text-primary);          /* Crisp white text */
+            height: 100vh;                      /* Viewport height lock */
+            display: flex;                      /* Flex container to stack header, ribbons, and map vertically */
+            flex-direction: column;             /* Stack children in a column */
+            overflow: hidden;                   /* Prevent accidental page scrolling */
+            -webkit-font-smoothing: antialiased;/* Crisp subpixel font rendering on macOS/iOS */
         }
 
-        /* ---------------- Header & Navigation ---------------- */
+        /* ---------------------------------------------------------------------
+           🏛️ HEADER & TOP NAVIGATION BAR
+           Displays the Urbanix logo, title, live polling badge, and refresh button.
+           --------------------------------------------------------------------- */
         header {
-            background-color: var(--bg-secondary);
-            border-bottom: 1px solid var(--border-card);
-            padding: 12px 24px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            z-index: 20;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+            background-color: var(--bg-secondary);           /* Slate-800 dark bar */
+            border-bottom: 1px solid var(--border-card);    /* Subtle separator line */
+            padding: 12px 24px;                             /* Comfortable internal spacing */
+            display: flex;                                  /* Horizontal flexbox */
+            align-items: center;                            /* Vertically center all header elements */
+            justify-content: space-between;                 /* Push brand to left, controls to right */
+            z-index: 20;                                    /* Keep header elevated above the map layer */
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);    /* Soft drop shadow for elevation */
         }
 
+        /* Container grouping the icon and title text */
         .header-brand {
             display: flex;
             align-items: center;
-            gap: 14px;
+            gap: 14px; /* Space between icon and text */
         }
 
+        /* Glowing rounded gradient icon container */
         .brand-icon {
             width: 38px;
             height: 38px;
-            background: linear-gradient(135deg, var(--accent-blue), var(--accent-cyan));
-            border-radius: 10px;
+            background: linear-gradient(135deg, var(--accent-blue), var(--accent-cyan)); /* Blue-to-cyan gradient */
+            border-radius: 10px;                                                        /* Smooth rounded corners */
             display: flex;
             align-items: center;
             justify-content: center;
             font-size: 20px;
-            box-shadow: 0 0 15px rgba(59, 130, 246, 0.4);
+            box-shadow: 0 0 15px rgba(59, 130, 246, 0.4);                               /* Futuristic ambient glow */
         }
 
+        /* Main application title styling */
         .brand-title h1 {
             font-size: 18px;
             font-weight: 700;
@@ -82,18 +136,21 @@
             color: var(--text-primary);
         }
 
+        /* Subtitle describing the platform's role */
         .brand-title p {
             font-size: 11px;
             color: var(--text-secondary);
             font-weight: 400;
         }
 
+        /* Right-hand header controls container (status badges, clock, refresh button) */
         .header-controls {
             display: flex;
             align-items: center;
-            gap: 16px;
+            gap: 16px; /* Spacing between controls */
         }
 
+        /* "Live Polling" indicator pill with soft green background */
         .badge-live {
             display: inline-flex;
             align-items: center;
@@ -107,20 +164,23 @@
             color: var(--color-green);
         }
 
+        /* Pulsing green radar dot showing active real-time data sync */
         .pulse-dot {
             width: 8px;
             height: 8px;
             background-color: var(--color-green);
             border-radius: 50%;
-            animation: pulse-animation 2s infinite;
+            animation: pulse-animation 2s infinite; /* Smooth continuous pulse */
         }
 
+        /* Keyframe animation creating expanding ripples around the live dot */
         @keyframes pulse-animation {
             0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
             70% { transform: scale(1); box-shadow: 0 0 0 8px rgba(16, 185, 129, 0); }
             100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
         }
 
+        /* Digital clock showing when the dashboard last synced */
         .clock-display {
             font-family: var(--font-mono);
             font-size: 12px;
@@ -131,6 +191,7 @@
             border: 1px solid var(--border-card);
         }
 
+        /* Interactive manual "Refresh Now" button */
         .btn-refresh {
             background: var(--bg-card);
             border: 1px solid var(--border-card);
@@ -146,12 +207,17 @@
             gap: 6px;
         }
 
+        /* Hover effect for the refresh button: glowing blue border */
         .btn-refresh:hover {
             background: rgba(255, 255, 255, 0.08);
             border-color: var(--accent-blue);
         }
 
-        /* ---------------- Freshness Status Tags (Day 11 — Phase 3) ---------------- */
+        /* ---------------------------------------------------------------------
+           🏷️ FRESHNESS STATUS TAGS
+           Color-coded badges indicating whether telemetry is fresh, stale, or offline.
+           Thresholds: Fresh (<180s), Stale (180s-900s), Offline (>900s).
+           --------------------------------------------------------------------- */
         .status-tag {
             font-size: 9px;
             font-weight: 700;
@@ -162,34 +228,41 @@
             display: inline-flex;
             align-items: center;
             gap: 4px;
-            white-space: nowrap;
+            white-space: nowrap; /* Prevents text from breaking onto two lines */
         }
 
+        /* Fresh data tag: Glowing green */
         .tag-fresh {
             background: rgba(16, 185, 129, 0.15);
             color: #34D399;
             border: 1px solid rgba(16, 185, 129, 0.4);
         }
 
+        /* Stale data tag: Warning amber */
         .tag-stale {
             background: rgba(245, 158, 11, 0.18);
             color: #FBBF24;
             border: 1px solid rgba(245, 158, 11, 0.5);
         }
 
+        /* Error/Offline data tag: Alert red */
         .tag-error {
             background: rgba(239, 68, 68, 0.18);
             color: #F87171;
             border: 1px solid rgba(239, 68, 68, 0.5);
         }
 
+        /* Unknown / Initializing tag: Neutral slate */
         .tag-unknown {
             background: rgba(100, 116, 139, 0.2);
             color: #94A3B8;
             border: 1px solid rgba(100, 116, 139, 0.3);
         }
 
-        /* ---------------- Metrics & Status Bar ---------------- */
+        /* ---------------------------------------------------------------------
+           📊 METRICS & STATUS RIBBON (KPI BAR)
+           Horizontal scrollable bar showcasing city-wide aggregates and zone speeds.
+           --------------------------------------------------------------------- */
         .metrics-bar {
             background-color: rgba(15, 23, 42, 0.95);
             border-bottom: 1px solid var(--border-card);
@@ -197,10 +270,11 @@
             display: flex;
             align-items: center;
             gap: 16px;
-            overflow-x: auto;
+            overflow-x: auto; /* Allows smooth horizontal scrolling if screen is narrow */
             z-index: 15;
         }
 
+        /* Individual metric card/chip */
         .metric-chip {
             background: var(--bg-card);
             border: 1px solid var(--border-card);
@@ -210,9 +284,10 @@
             align-items: center;
             gap: 10px;
             min-width: 170px;
-            flex-shrink: 0;
+            flex-shrink: 0; /* Prevents chip from shrinking when screen narrows */
         }
 
+        /* Small uppercase label inside metric chip */
         .chip-label {
             font-size: 10px;
             text-transform: uppercase;
@@ -221,13 +296,15 @@
             margin-bottom: 2px;
         }
 
+        /* Prominent value inside metric chip */
         .chip-value {
             font-size: 14px;
             font-weight: 700;
             color: var(--text-primary);
-            font-family: var(--font-mono);
+            font-family: var(--font-mono); /* Fixed-width numbers prevent jitter when values update */
         }
 
+        /* Level of Service (LOS) pills for individual zone traffic status */
         .zone-pill {
             padding: 2px 6px;
             border-radius: 4px;
@@ -236,14 +313,17 @@
             text-transform: uppercase;
         }
 
-        .pill-green { background: rgba(16, 185, 129, 0.15); color: #34D399; }
-        .pill-orange { background: rgba(245, 158, 11, 0.15); color: #FBBF24; }
-        .pill-red { background: rgba(239, 68, 68, 0.15); color: #F87171; }
+        .pill-green { background: rgba(16, 185, 129, 0.15); color: #34D399; } /* Free-flowing */
+        .pill-orange { background: rgba(245, 158, 11, 0.15); color: #FBBF24; } /* Moderate */
+        .pill-red { background: rgba(239, 68, 68, 0.15); color: #F87171; }    /* Congested */
 
-        /* ---------------- Error & Notification Banner ---------------- */
+        /* ---------------------------------------------------------------------
+           ⚠️ ERROR & NOTIFICATION BANNER
+           Graceful error alert bar displayed if network calls or microservices fail.
+           --------------------------------------------------------------------- */
         #error-banner {
-            display: none;
-            background: rgba(239, 68, 68, 0.9);
+            display: none;                          /* Hidden by default; shown only on errors */
+            background: rgba(239, 68, 68, 0.9);    /* High-visibility alert red */
             color: white;
             padding: 10px 24px;
             font-size: 13px;
@@ -251,25 +331,29 @@
             display: flex;
             align-items: center;
             justify-content: space-between;
-            z-index: 25;
+            z-index: 25;                            /* Sits above all other interface layers */
         }
 
-        /* ---------------- Main Content Layout ---------------- */
+        /* ---------------------------------------------------------------------
+           🗺️ MAIN CONTENT LAYOUT & MAP CANVAS
+           Contains the Leaflet/Folium map iframe and floating architectural info cards.
+           --------------------------------------------------------------------- */
         main {
-            flex: 1;
-            display: flex;
-            position: relative;
-            overflow: hidden;
+            flex: 1;            /* Takes up all remaining vertical space on the screen */
+            display: flex;      /* Flex container for child elements */
+            position: relative; /* Anchor for absolutely-positioned overlay cards */
+            overflow: hidden;   /* Prevents unwanted scrollbars */
         }
 
-        /* Map IFrame Container */
+        /* Map IFrame Container taking full width and height */
         #map-container {
             flex: 1;
             height: 100%;
             position: relative;
-            background-color: #0b0f19;
+            background-color: #0b0f19; /* Dark background matching the Leaflet CartoDB dark tile layer */
         }
 
+        /* The actual embedded map iframe */
         #map-frame {
             width: 100%;
             height: 100%;
@@ -277,7 +361,7 @@
             display: block;
         }
 
-        /* Loading Spinner Overlay */
+        /* Semi-transparent loading spinner overlay shown while map refreshes */
         #loading-overlay {
             position: absolute;
             top: 16px;
@@ -289,18 +373,19 @@
             padding: 8px 14px;
             font-size: 12px;
             color: var(--text-secondary);
-            display: none;
+            display: none;              /* Hidden until refresh starts */
             align-items: center;
             gap: 8px;
-            z-index: 1000;
+            z-index: 1000;              /* Stays visible above the map canvas */
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
         }
 
+        /* Circular CSS spinning loader animation */
         .spinner {
             width: 14px;
             height: 14px;
             border: 2px solid rgba(255, 255, 255, 0.2);
-            border-top-color: var(--accent-cyan);
+            border-top-color: var(--accent-cyan); /* Cyan spinning top border */
             border-radius: 50%;
             animation: spin 0.8s linear infinite;
         }
@@ -309,7 +394,7 @@
             to { transform: rotate(360deg); }
         }
 
-        /* Floating Info Box on Map */
+        /* Glassmorphic floating card explaining the map architecture */
         .floating-info-card {
             position: absolute;
             top: 16px;
@@ -342,6 +427,7 @@
             margin-bottom: 8px;
         }
 
+        /* Stat row inside the info card */
         .stat-row {
             display: flex;
             justify-content: space-between;
@@ -352,8 +438,12 @@
 </head>
 <body>
 
-    <!-- 1. Top Header -->
+    <!-- ================================================================= -->
+    <!-- 1. TOP HEADER SECTION                                             -->
+    <!-- Displays platform brand identity, live status, and manual refresh -->
+    <!-- ================================================================= -->
     <header>
+        <!-- Left: Brand Icon, Name, and Description -->
         <div class="header-brand">
             <div class="brand-icon">🌆</div>
             <div class="brand-title">
@@ -361,42 +451,63 @@
                 <p>Smart City IoT Traffic & Environmental Risk Forecasting Platform</p>
             </div>
         </div>
+
+        <!-- Right: Real-Time Status Badges, System Clock, and Refresh Button -->
         <div class="header-controls">
+            <!-- Continuous live polling visual pill -->
             <div class="badge-live">
                 <div class="pulse-dot"></div>
                 <span>LIVE POLLING (15s)</span>
             </div>
+
+            <!-- Header telemetry freshness indicators (checked on every poll) -->
             <div style="display: flex; gap: 8px; align-items: center;">
                 <span id="badge-pred-header" class="status-tag tag-unknown" title="Predictions Freshness">Predictions: Checking...</span>
                 <span id="badge-route-header" class="status-tag tag-unknown" title="Route Freshness">Route: Checking...</span>
             </div>
+
+            <!-- Timestamp of the most recent successful data fetch -->
             <div class="clock-display" id="last-updated-clock">Updated: Initializing...</div>
+
+            <!-- Manual refresh button allowing operator to trigger an on-demand update -->
             <button class="btn-refresh" id="manual-refresh-btn" onclick="triggerManualRefresh()">
                 <span>🔄</span> Refresh Now
             </button>
         </div>
     </header>
 
-    <!-- 2. Error Notification Banner -->
+    <!-- ================================================================= -->
+    <!-- 2. ERROR & NOTIFICATION BANNER                                    -->
+    <!-- Gracefully informs operators if the backend is temporarily unreachable -->
+    <!-- ================================================================= -->
     <div id="error-banner">
         <span id="error-message">⚠️ Error loading latest predictions. Retrying automatically...</span>
+        <!-- Manual dismissal 'X' button -->
         <button style="background: none; border: none; color: white; cursor: pointer; font-size: 16px;" onclick="dismissError()">✕</button>
     </div>
 
-    <!-- 3. Metrics Summary Ribbon -->
+    <!-- ================================================================= -->
+    <!-- 3. METRICS SUMMARY RIBBON (KPI BAR)                              -->
+    <!-- Key summary statistics computed dynamically from incoming Parquet data -->
+    <!-- ================================================================= -->
     <div class="metrics-bar" id="metrics-bar">
+        <!-- Chip 1: Number of monitored municipal traffic zones -->
         <div class="metric-chip">
             <div>
                 <div class="chip-label">Monitored Zones</div>
                 <div class="chip-value" id="chip-zones">5 Active</div>
             </div>
         </div>
+
+        <!-- Chip 2: Average predicted network velocity across all active zones -->
         <div class="metric-chip">
             <div>
                 <div class="chip-label">Avg Network Speed</div>
                 <div class="chip-value" id="chip-avg-speed">-- km/h</div>
             </div>
         </div>
+
+        <!-- Chip 3: Scala GraphX Pregel shortest-path routing status to Node 15 -->
         <div class="metric-chip">
             <div>
                 <div class="chip-label" style="display: flex; justify-content: space-between; align-items: center; gap: 6px;">
@@ -406,6 +517,8 @@
                 <div class="chip-value" id="chip-routes">20 Optimal (100%)</div>
             </div>
         </div>
+
+        <!-- Chip 4: Timestamp of the most recent micro-batch window processed by Spark -->
         <div class="metric-chip">
             <div>
                 <div class="chip-label" style="display: flex; justify-content: space-between; align-items: center; gap: 6px;">
@@ -415,20 +528,24 @@
                 <div class="chip-value" id="chip-window" style="font-size: 11px;">--</div>
             </div>
         </div>
-        <!-- Individual Zone Status Chips will be dynamically populated here -->
+
+        <!-- Dynamic Container: Per-zone speed chips (e.g. Downtown, Westside) are inserted here via JavaScript -->
         <div id="zone-chips-container" style="display: flex; gap: 10px;"></div>
     </div>
 
-    <!-- 4. Interactive Map Section -->
+    <!-- ================================================================= -->
+    <!-- 4. INTERACTIVE GEOSPATIAL MAP SECTION                             -->
+    <!-- Renders the server-generated Folium Leaflet interactive canvas    -->
+    <!-- ================================================================= -->
     <main>
         <div id="map-container">
-            <!-- Loading indicator -->
+            <!-- Non-blocking loading indicator shown during iframe refresh -->
             <div id="loading-overlay">
                 <div class="spinner"></div>
                 <span>Syncing live Parquet predictions...</span>
             </div>
 
-            <!-- Floating Architecture Note -->
+            <!-- Floating Architecture & Topology Information Card -->
             <div class="floating-info-card">
                 <h3><span>🗺️</span> Real-Time Geospatial Map</h3>
                 <p>Folium Leaflet canvas rendered server-side from live Parquet feature table without in-memory caching.</p>
@@ -448,46 +565,62 @@
 
             <!-- 
                 =============================================================
-                Why an <iframe> is Used Rather Than <div>.innerHTML:
+                💡 ARCHITECTURAL NOTE: Why an <iframe> is Used Instead of innerHTML
                 =============================================================
-                1. Folium generates a complete, standalone HTML document containing
-                   its own <head>, Leaflet CSS, Leaflet JS, and an initialization <script>.
-                2. Setting innerHTML on a <div> does NOT execute embedded <script> tags
-                   according to standard W3C HTML5 security specifications, which leaves
-                   the Leaflet map canvas completely blank!
-                3. An <iframe> provides complete DOM and CSS isolation: it instantiates
-                   a fresh Leaflet execution context, cleanly updates without CSS leakage,
-                   and safely recycles memory across repeated polling intervals.
+                1. Folium creates an entire self-contained HTML document containing
+                   its own <head>, Leaflet CSS, Leaflet JS, and initialization script.
+                2. If we placed that HTML into a <div> using .innerHTML, standard
+                   W3C browser security rules would PREVENT embedded <script> tags
+                   from running, leaving the Leaflet map completely blank!
+                3. Using an <iframe> gives Leaflet its own clean sandbox window:
+                   scripts execute safely, CSS styles do not leak into the parent
+                   page, and memory is cleanly recycled every time the map reloads.
             -->
             <iframe id="map-frame" src="/api/map" title="Urbanix Live Heatmap"></iframe>
         </div>
     </main>
 
-    <!-- 5. Polling & Live Data Client-Side Logic -->
+    <!-- ================================================================= -->
+    <!-- 5. CLIENT-SIDE POLLING, ASYNC FETCH & RENDERING LOGIC            -->
+    <!-- Coordinates periodic background polling, error recovery & UI updates -->
+    <!-- ================================================================= -->
     <script>
         // =====================================================================
-        // Configuration: Single Constant Polling Interval (Section 8 Standard)
+        // ⚙️ CONSTANTS & STATE VARIABLES
         // =====================================================================
-        const REFRESH_INTERVAL_MS = 15000; // 15 seconds polling interval
-        let isRefreshing = false;           // Concurrency guard: prevents overlapping fetches
+        // Polling interval in milliseconds: 15,000 ms = 15 seconds (Day 10/11 SRS standard)
+        const REFRESH_INTERVAL_MS = 15000;
+
+        // Concurrency guard flag: prevents triggering a new poll cycle if the previous one is still in flight
+        let isRefreshing = false;
+
+        // Reference to the repeating setInterval timer (used to cancel timer on page unload)
         let timerId = null;
 
-        // Last-known valid data states (Graceful degradation on transient API failure)
+        // Cached fallback states: stores the most recent successful responses
+        // If an API call fails momentarily, we show the cached data instead of crashing the UI
         let lastKnownPredictions = null;
         let lastKnownRoute = null;
 
         /**
-         * Sets tag element styles and text deterministically.
+         * Helper Function: setStatusTag()
+         * Dynamically updates the CSS class and text of a status badge.
+         * @param {string} elemId - The HTML element ID (e.g. 'badge-pred-header')
+         * @param {string} status - Status code: 'fresh', 'stale', 'error', or 'unknown'
+         * @param {string} label  - Human-readable text to display inside the badge
          */
         function setStatusTag(elemId, status, label) {
             const el = document.getElementById(elemId);
-            if (!el) return;
+            if (!el) return; // Guard clause if element doesn't exist
             el.className = `status-tag tag-${status.toLowerCase()}`;
             el.textContent = label;
         }
 
         /**
-         * Formats an ISO-8601 timestamp into a clean, human-readable local time string.
+         * Helper Function: formatTime()
+         * Converts an ISO-8601 date string (e.g. "2026-10-23T12:00:00Z") into a friendly local time.
+         * @param {string} isoString - The ISO date string
+         * @returns {string} Clean local time formatted as "HH:MM:SS"
          */
         function formatTime(isoString) {
             if (!isoString) return 'Just now';
@@ -495,35 +628,43 @@
                 const date = new Date(isoString);
                 return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
             } catch (e) {
-                return isoString;
+                return isoString; // Fallback to raw string if parsing fails
             }
         }
 
         /**
-         * Renders predictions data onto the KPI ribbon and zone chips.
+         * Render Function: renderPredictions()
+         * Takes an array of prediction objects from /api/predictions and populates the KPI ribbon.
+         * @param {Array} predictions - Array of zone prediction records
+         * @param {boolean} isCached - True if rendering previously saved fallback data
          */
         function renderPredictions(predictions, isCached) {
             let totalSpeed = 0;
             let latestWindow = '';
             let anyStale = false;
             const zoneChipsContainer = document.getElementById('zone-chips-container');
-            zoneChipsContainer.innerHTML = '';
+            zoneChipsContainer.innerHTML = ''; // Clear previous zone chips
 
+            // Loop through each zone prediction to calculate aggregates and build visual chips
             predictions.forEach(p => {
-                totalSpeed += p.predicted_speed_kmph;
+                totalSpeed += p.predicted_speed_kmph; // Accumulate speed for network average
+
+                // Track the latest micro-batch window timestamp
                 if (p.window_start && p.window_start > latestWindow) {
                     latestWindow = p.window_start;
                 }
+
+                // If any zone is flagged as stale by the backend freshness evaluator, note it
                 if (p.is_stale) {
                     anyStale = true;
                 }
 
-                // Determine LOS pill style
-                let pillClass = 'pill-green';
-                if (p.status === 'MODERATE') pillClass = 'pill-orange';
-                if (p.status === 'CONGESTED') pillClass = 'pill-red';
+                // Determine Level of Service (LOS) badge color based on traffic condition
+                let pillClass = 'pill-green'; // Default: Free-flowing (> 45 km/h)
+                if (p.status === 'MODERATE') pillClass = 'pill-orange'; // Moderate (25 - 45 km/h)
+                if (p.status === 'CONGESTED') pillClass = 'pill-red';   // Congested (< 25 km/h)
 
-                // Create individual zone chip with stale indicator
+                // Dynamically create an individual zone metric chip card
                 const chip = document.createElement('div');
                 chip.className = 'metric-chip';
                 chip.style.minWidth = '145px';
@@ -542,13 +683,17 @@
                 zoneChipsContainer.appendChild(chip);
             });
 
+            // Calculate and display network-wide average speed
             const avgSpeed = totalSpeed / predictions.length;
             document.getElementById('chip-avg-speed').textContent = `${avgSpeed.toFixed(1)} km/h`;
             document.getElementById('chip-zones').textContent = `${predictions.length} Active`;
+
+            // Display latest Spark streaming micro-batch time window
             if (latestWindow) {
                 document.getElementById('chip-window').textContent = latestWindow.substring(11, 19) + ' UTC';
             }
 
+            // Update freshness badges only if this is live (not cached) data
             if (!isCached) {
                 if (anyStale) {
                     setStatusTag('badge-pred-header', 'stale', 'Predictions: Stale (2012 Replay)');
@@ -561,12 +706,17 @@
         }
 
         /**
-         * Renders route status onto the KPI ribbon.
+         * Render Function: renderRoute()
+         * Takes the recommended route object from /api/route and updates the route KPI chip.
+         * @param {Object} route - The route recommendation object
+         * @param {boolean} isCached - True if rendering previously saved fallback data
          */
         function renderRoute(route, isCached) {
             const eta = route.total_travel_time_minutes;
+            // Update route KPI chip with the destination ID and estimated travel time in minutes
             document.getElementById('chip-routes').textContent = `Dest 15: ${eta.toFixed(1)}m`;
 
+            // Update route freshness badge based on timestamp age (< 180s = Fresh, >= 180s = Stale)
             if (!isCached) {
                 if (route.is_stale) {
                     setStatusTag('badge-route-header', 'stale', 'Route: Stale');
@@ -579,16 +729,23 @@
         }
 
         /**
-         * Updates predictions asynchronously from /api/predictions.
+         * Async Function: updatePredictions()
+         * Fetches latest speed forecasts from FastAPI endpoint /api/predictions.
+         * Gracefully handles:
+         *   - Normal response with predictions array
+         *   - Empty state (feature table empty or awaiting sensor events)
+         *   - Network failure (falls back to cached predictions with clear UI notice)
          */
         async function updatePredictions() {
             try {
+                // Fetch JSON from the backend predictions API
                 const response = await fetch('/api/predictions');
                 if (!response.ok) {
                     throw new Error(`HTTP ${response.status}`);
                 }
                 const predictions = await response.json();
 
+                // Case A: Backend responded, but the dataset is currently empty
                 if (!Array.isArray(predictions) || predictions.length === 0) {
                     setStatusTag('badge-pred-header', 'unknown', 'Predictions: No Data');
                     setStatusTag('chip-pred-badge', 'unknown', 'No Data');
@@ -600,15 +757,19 @@
                     return;
                 }
 
-                lastKnownPredictions = predictions;
+                // Case B: Successful live data received
+                lastKnownPredictions = predictions; // Cache this response for resilience
                 renderPredictions(predictions, false);
             } catch (err) {
+                // Case C: Network or server error
                 console.warn('[Dashboard] Could not update predictions:', err);
                 if (lastKnownPredictions) {
+                    // Fallback 1: We have prior data -> Show cached data with a warning badge
                     renderPredictions(lastKnownPredictions, true);
                     setStatusTag('badge-pred-header', 'error', 'Predictions: Cached (API Down)');
                     setStatusTag('chip-pred-badge', 'error', 'Cached');
                 } else {
+                    // Fallback 2: No prior data -> Display safe placeholder message
                     setStatusTag('badge-pred-header', 'error', 'Predictions: Unavailable');
                     setStatusTag('chip-pred-badge', 'error', 'Unavailable');
                     document.getElementById('chip-avg-speed').textContent = '-- km/h';
@@ -622,16 +783,19 @@
         }
 
         /**
-         * Updates route recommendations asynchronously from /api/route?destination_id=15.
+         * Async Function: updateRouteStatus()
+         * Fetches latest Scala GraphX Pregel shortest-path routing from /api/route?destination_id=15.
          */
         async function updateRouteStatus() {
             try {
+                // Fetch optimal route recommendation for destination node 15
                 const response = await fetch('/api/route?destination_id=15');
                 if (!response.ok) {
                     throw new Error(`HTTP ${response.status}`);
                 }
                 const routes = await response.json();
 
+                // Case A: No routes found in recommendation table
                 if (!Array.isArray(routes) || routes.length === 0) {
                     setStatusTag('badge-route-header', 'unknown', 'Route: No Data');
                     setStatusTag('chip-route-badge', 'unknown', 'No Data');
@@ -639,16 +803,20 @@
                     return;
                 }
 
+                // Case B: Route received successfully
                 const r = routes[0];
-                lastKnownRoute = r;
+                lastKnownRoute = r; // Cache for graceful degradation
                 renderRoute(r, false);
             } catch (err) {
+                // Case C: Routing API unavailable
                 console.warn('[Dashboard] Could not update route status:', err);
                 if (lastKnownRoute) {
+                    // Show cached route with warning badge
                     renderRoute(lastKnownRoute, true);
                     setStatusTag('badge-route-header', 'error', 'Route: Cached (API Down)');
                     setStatusTag('chip-route-badge', 'error', 'Cached');
                 } else {
+                    // No cached route available
                     setStatusTag('badge-route-header', 'error', 'Route: Unavailable');
                     setStatusTag('chip-route-badge', 'error', 'Unavailable');
                     document.getElementById('chip-routes').textContent = 'Unavailable';
@@ -657,33 +825,41 @@
         }
 
         /**
-         * Updates both prediction metrics and route status independently.
+         * Async Function: updateMetrics()
+         * Coordinates parallel execution of both prediction and route status updates.
+         * Uses Promise.allSettled() so a failure in one call does NOT abort the other!
          */
         async function updateMetrics() {
             await Promise.allSettled([
                 updatePredictions(),
                 updateRouteStatus()
             ]);
-            dismissError();
+            dismissError(); // If calls succeeded or recovered, clear any transient error banner
         }
 
         /**
-         * Refreshes the Folium map <iframe> in place by assigning a cache-busting timestamp URL.
+         * Function: refreshMapIframe()
+         * Refreshes the Folium map <iframe> in place by appending a cache-busting timestamp parameter.
+         * Why ?t=Date.now()?
+         * Browsers heavily cache iframe URLs. Adding the current millisecond timestamp ensures
+         * the browser always requests a freshly generated Folium HTML map from FastAPI.
          */
         function refreshMapIframe() {
             const iframe = document.getElementById('map-frame');
             const loadingOverlay = document.getElementById('loading-overlay');
-            loadingOverlay.style.display = 'flex';
+            loadingOverlay.style.display = 'flex'; // Show loading spinner
 
-            // Cache-busting query parameter forces browser to request fresh HTML from /api/map
+            // Assign cache-busting URL to trigger server-side re-render
             iframe.src = `/api/map?t=${Date.now()}`;
 
+            // When the new map finishes loading, hide spinner and update the clock
             iframe.onload = () => {
                 loadingOverlay.style.display = 'none';
                 const now = new Date();
                 document.getElementById('last-updated-clock').textContent = `Updated: ${now.toLocaleTimeString()}`;
             };
 
+            // If the map iframe fails to load, hide spinner and display error banner
             iframe.onerror = () => {
                 loadingOverlay.style.display = 'none';
                 showError('Failed to refresh Leaflet map from /api/map');
@@ -691,18 +867,20 @@
         }
 
         /**
-         * Main refresh orchestrator called on page open and repeatedly by setInterval().
+         * Master Refresh Function: refreshDashboard()
+         * Orchestrates the complete dashboard update cycle.
+         * Called both on initial page load and repeatedly by setInterval().
          */
         async function refreshDashboard() {
-            // Concurrency guard: Do not trigger a new cycle if the previous one is still in flight
+            // Concurrency guard: If a previous poll is still actively downloading, skip this tick
             if (isRefreshing) {
                 console.log('[Dashboard] Refresh skipped: previous cycle still active.');
                 return;
             }
 
-            isRefreshing = true;
+            isRefreshing = true; // Lock execution
             try {
-                // Parallel execution: refresh metrics and refresh map iframe
+                // Execute metrics update and map iframe refresh in parallel
                 await Promise.all([
                     updateMetrics(),
                     refreshMapIframe()
@@ -711,41 +889,52 @@
                 console.error('[Dashboard] Error during refresh cycle:', error);
                 showError(`Refresh cycle error: ${error.message}`);
             } finally {
-                isRefreshing = false;
+                isRefreshing = false; // Release lock when finished
             }
         }
 
         /**
-         * Manual refresh triggered by user clicking the "Refresh Now" button.
+         * User Event Handler: triggerManualRefresh()
+         * Triggered when the user clicks the "🔄 Refresh Now" button in the header.
          */
         function triggerManualRefresh() {
             console.log('[Dashboard] Manual refresh triggered by user.');
             refreshDashboard();
         }
 
+        /**
+         * UI Helper: showError()
+         * Shows the top alert banner with an explanatory message.
+         * @param {string} msg - The error description
+         */
         function showError(msg) {
             const banner = document.getElementById('error-banner');
             document.getElementById('error-message').textContent = `⚠️ ${msg}. Auto-retrying in ${REFRESH_INTERVAL_MS / 1000}s...`;
             banner.style.display = 'flex';
         }
 
+        /**
+         * UI Helper: dismissError()
+         * Hides the top alert banner.
+         */
         function dismissError() {
             document.getElementById('error-banner').style.display = 'none';
         }
 
         // =====================================================================
-        // Execution Lifecycle: Immediate Execution + Recurring Polling Loop
+        // 🚀 APPLICATION LIFECYCLE (Page Load & Polling Loop)
         // =====================================================================
-        // 1. Initial immediate execution on page load
+
+        // 1. Initial immediate execution as soon as the HTML DOM is ready
         window.addEventListener('DOMContentLoaded', () => {
             console.log(`[Dashboard] Initializing Urbanix Dashboard (Polling every ${REFRESH_INTERVAL_MS}ms)`);
-            updateMetrics();
+            updateMetrics(); // Initial fetch for fast first paint
 
-            // 2. Schedule recurring polling loop
+            // 2. Set up recurring background polling timer (every 15 seconds)
             timerId = setInterval(refreshDashboard, REFRESH_INTERVAL_MS);
         });
 
-        // Clean up interval if user navigates away
+        // 3. Clean up the timer if the operator navigates away from the page (prevents memory leaks)
         window.addEventListener('beforeunload', () => {
             if (timerId) clearInterval(timerId);
         });
