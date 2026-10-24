@@ -1,0 +1,62 @@
+﻿============================= test session starts =============================
+platform win32 -- Python 3.10.11, pytest-9.1.1, pluggy-1.7.0 -- C:\Users\Tokachichu SriCharan\OneDrive\Documents\GitHub\urbanix\dashboard\venv\Scripts\python.exe
+cachedir: .pytest_cache
+rootdir: C:\Users\Tokachichu SriCharan\OneDrive\Documents\GitHub\urbanix
+plugins: anyio-4.15.1
+collecting ... collected 47 items
+
+dashboard/tests/test_dashboard.py::test_repo_paths_exist PASSED          [  2%]
+dashboard/tests/test_dashboard.py::test_parquet_filtering_ignores_non_parquet PASSED [  4%]
+dashboard/tests/test_dashboard.py::test_load_zone_coordinates PASSED     [  6%]
+dashboard/tests/test_dashboard.py::test_speed_status_thresholds PASSED   [  8%]
+dashboard/tests/test_dashboard.py::test_get_predictions_endpoint PASSED  [ 10%]
+dashboard/tests/test_dashboard.py::test_get_route_endpoint PASSED        [ 12%]
+dashboard/tests/test_dashboard.py::test_get_route_filtered_by_destination PASSED [ 14%]
+dashboard/tests/test_dashboard.py::test_get_route_invalid_destination PASSED [ 17%]
+dashboard/tests/test_dashboard.py::test_get_map_endpoint PASSED          [ 19%]
+dashboard/tests/test_dashboard.py::test_root_index_page PASSED           [ 21%]
+dashboard/tests/test_dashboard.py::test_cors_headers PASSED              [ 23%]
+dashboard/tests/test_dashboard.py::test_no_mock_data PASSED              [ 25%]
+dashboard/tests/test_dashboard.py::test_load_intersections_registry PASSED [ 27%]
+dashboard/tests/test_dashboard.py::test_build_route_coordinates_ordered_sequence PASSED [ 29%]
+dashboard/tests/test_dashboard.py::test_build_route_coordinates_aborts_on_missing_node PASSED [ 31%]
+dashboard/tests/test_dashboard.py::test_build_route_coordinates_aborts_on_invalid_coordinates PASSED [ 34%]
+dashboard/tests/test_dashboard.py::test_build_route_coordinates_handles_malformed_inputs PASSED [ 36%]
+dashboard/tests/test_dashboard.py::test_get_map_with_route_overlay_destination_15 PASSED [ 38%]
+dashboard/tests/test_dashboard.py::test_get_map_graceful_on_nonexistent_destination PASSED [ 40%]
+dashboard/tests/test_dashboard.py::test_freshness_helper_below_threshold PASSED [ 42%]
+dashboard/tests/test_dashboard.py::test_freshness_helper_exact_threshold PASSED [ 44%]
+dashboard/tests/test_dashboard.py::test_freshness_helper_above_threshold PASSED [ 46%]
+dashboard/tests/test_dashboard.py::test_freshness_helper_missing_timestamp PASSED [ 48%]
+dashboard/tests/test_dashboard.py::test_freshness_helper_malformed_timestamp PASSED [ 51%]
+dashboard/tests/test_dashboard.py::test_freshness_helper_timezone_aware_normalization PASSED [ 53%]
+dashboard/tests/test_dashboard.py::test_freshness_helper_naive_interpreted_as_utc PASSED [ 55%]
+dashboard/tests/test_dashboard.py::test_freshness_helper_future_timestamp_clock_skew PASSED [ 57%]
+dashboard/tests/test_dashboard.py::test_configured_constants PASSED      [ 59%]
+dashboard/tests/test_dashboard.py::test_predictions_api_freshness_metadata PASSED [ 61%]
+dashboard/tests/test_dashboard.py::test_route_api_freshness_metadata PASSED [ 63%]
+dashboard/tests/test_dashboard.py::test_route_api_invalid_query_type_returns_422 PASSED [ 65%]
+dashboard/tests/test_dashboard.py::test_map_stale_route_styling_and_tooltip PASSED [ 68%]
+dashboard/tests/test_dashboard.py::test_map_fresh_route_styling_with_injected_snapshot PASSED [ 70%]
+dashboard/tests/test_dashboard.py::test_frontend_stale_indicators_and_polling_script PASSED [ 72%]
+dashboard/tests/test_dashboard.py::test_predictions_missing_directory_returns_503 PASSED [ 74%]
+dashboard/tests/test_dashboard.py::test_predictions_empty_table_returns_200_empty_list PASSED [ 76%]
+dashboard/tests/test_dashboard.py::test_predictions_corrupted_parquet_returns_500 PASSED [ 78%]
+dashboard/tests/test_dashboard.py::test_predictions_invalid_schema_returns_500 PASSED [ 80%]
+dashboard/tests/test_dashboard.py::test_route_missing_directory_returns_503 PASSED [ 82%]
+dashboard/tests/test_dashboard.py::test_route_empty_table_returns_200_empty_list_and_404_on_query PASSED [ 85%]
+dashboard/tests/test_dashboard.py::test_route_corrupted_parquet_returns_500 PASSED [ 87%]
+dashboard/tests/test_dashboard.py::test_route_invalid_schema_returns_500 PASSED [ 89%]
+dashboard/tests/test_dashboard.py::test_route_invalid_query_type_returns_422 PASSED [ 91%]
+dashboard/tests/test_dashboard.py::test_map_fallback_when_route_directory_missing PASSED [ 93%]
+dashboard/tests/test_dashboard.py::test_map_fallback_when_intersections_missing PASSED [ 95%]
+dashboard/tests/test_dashboard.py::test_unexpected_internal_exception_sanitized_500 PASSED [ 97%]
+dashboard/tests/test_dashboard.py::test_frontend_graceful_degradation_strings PASSED [100%]
+
+============================== warnings summary ===============================
+dashboard\venv\lib\site-packages\fastapi\testclient.py:1
+  C:\Users\Tokachichu SriCharan\OneDrive\Documents\GitHub\urbanix\dashboard\venv\lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+======================= 47 passed, 1 warning in 11.60s ========================

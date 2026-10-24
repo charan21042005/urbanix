@@ -1,0 +1,24 @@
+﻿=== URBANIX PHASE B: KAFKA PRODUCER EXECUTION AUDIT ===
+Timestamp: 2026-10-24 23:21:32 +05:30
+======================================================================
+[RUN-ALL] Launching Urbanix Concurrent Telemetry Simulation (Day 2)
+ - Python Runtime: C:\Users\Tokachichu SriCharan\OneDrive\Documents\GitHub\urbanix\services\producers\venv\Scripts\python.exe
+ - Mode:           3 Concurrent Producers (Traffic, AQI, Weather)
+ - Max Events:     30 PER PRODUCER (Total: 90)
+ - Press Ctrl+C at any time to shut down all producers cleanly.
+======================================================================
+[+] Started Traffic Producer (PID: 31020)
+[+] Started AQI Producer (PID: 12888)
+[+] Started Weather Producer (PID: 13124)
+[Traffic Producer] ============================================================
+[AQI Producer] ============================================================
+[Weather Producer] ============================================================
+[Traffic Producer] [TRAFFIC] Urbanix Traffic Producer -- METR-LA Sensor Simulation
+[AQI Producer] [AQI] Urbanix AQI Producer -- U.S. EPA AirData Simulation
+[Weather Producer] [WEATHER] Urbanix Weather Producer -- OpenWeather Historical Simulation
+[Traffic Producer] - Target Topic:    traffic-topic
+[AQI Producer] - Target Topic:    aqi-topic
+[Weather Producer] - Target Topic:    weather-topic
+
+[OK] All simulation producers have completed their streams.
+[OK] All producer processes terminated cleanly.

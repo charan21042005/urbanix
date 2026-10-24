@@ -1,0 +1,40 @@
+﻿=== URBANIX PHASE B: DOCKER & KAFKA INFRASTRUCTURE AUDIT ===
+Timestamp: 2026-10-24 23:19:13 +05:30
+docker : time="2026-10-24T23:19:13+05:30" level=warning msg="C:\\Users\\Tokachichu 
+SriCharan\\OneDrive\\Documents\\GitHub\\urbanix\\infra\\docker-compose.yml: the attribute `version` is obsolete, it 
+will be ignored, please remove it to avoid potential confusion"
+At line:4 char:1
++ docker compose -f infra/docker-compose.yml up -d 2>&1 | Out-File -Fil ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (time="2026-10-2...tial confusion":String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+ Container spark-master Starting 
+ Container zookeeper Starting 
+ Container spark-master Started 
+ Container spark-worker Starting 
+ Container zookeeper Started 
+ Container kafka Starting 
+ Container spark-worker Started 
+ Container kafka Started 
+docker : time="2026-10-24T23:19:20+05:30" level=warning msg="C:\\Users\\Tokachichu 
+SriCharan\\OneDrive\\Documents\\GitHub\\urbanix\\infra\\docker-compose.yml: the attribute `version` is obsolete, it 
+will be ignored, please remove it to avoid potential confusion"
+At line:6 char:1
++ docker compose -f infra/docker-compose.yml ps 2>&1 | Out-File -FilePa ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (time="2026-10-2...tial confusion":String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+NAME           IMAGE                             COMMAND                  SERVICE        CREATED       STATUS         PORTS
+kafka          confluentinc/cp-kafka:7.5.0       "/etc/confluent/dockΓÇª"   kafka          4 weeks ago   Up 5 seconds   0.0.0.0:9092->9092/tcp, [::]:9092->9092/tcp
+spark-master   apache/spark:3.5.1                "/opt/entrypoint.sh ΓÇª"   spark-master   4 weeks ago   Up 6 seconds   0.0.0.0:7077->7077/tcp, [::]:7077->7077/tcp, 0.0.0.0:8081->8080/tcp, [::]:8081->8080/tcp
+spark-worker   apache/spark:3.5.1                "/opt/entrypoint.sh ΓÇª"   spark-worker   4 weeks ago   Up 5 seconds   
+zookeeper      confluentinc/cp-zookeeper:7.5.0   "/etc/confluent/dockΓÇª"   zookeeper      4 weeks ago   Up 6 seconds   2181/tcp, 2888/tcp, 3888/tcp
+docker : Error response from daemon: No such container: urbanix-kafka
+At line:7 char:1
++ docker exec urbanix-kafka kafka-topics --bootstrap-server localhost:9 ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Error response ...: urbanix-kafka:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 

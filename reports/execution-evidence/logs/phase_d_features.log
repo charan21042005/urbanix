@@ -1,0 +1,177 @@
+﻿=== URBANIX PHASE D: FEATURE TABLE VERIFICATION AUDIT ===
+Timestamp: 2026-10-24 23:22:00 +05:30
+.\services\streaming\venv\Scripts\python.exe : Setting default log level to "WARN".
+At line:4 char:1
++ .\services\streaming\venv\Scripts\python.exe services/streaming/verif ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Setting default log level to "WARN".:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+To adjust logging level use sc.setLogLevel(newLevel). For SparkR, use setLogLevel(newLevel).
+2026-10-24 23:22:09,005 [INFO] [Urbanix-Verifier] Found 12 Parquet data file(s). Loading into Spark...
+
+[Stage 0:>                                                          (0 + 0) / 1]
+
+[Stage 0:>                                                          (0 + 1) / 1]
+
+                                                                                
+
+[Stage 4:>                                                          (0 + 1) / 1]
+
+                                                                                
+
+[Stage 14:=============================>                            (1 + 1) / 2]
+
+                                                                                
+2026-10-24 23:22:30,130 [INFO] [Urbanix-Verifier] Found 5 Parquet data file(s). Loading into Spark...
+2026-10-24 23:22:32,199 [INFO] [Urbanix-Verifier] Found 5 Parquet data file(s). Loading into Spark...
+
+======================================================================
+VERIFYING FEATURE DATASET: TRAFFIC (C:\Users\Tokachichu SriCharan\OneDrive\Documents\GitHub\urbanix\data\feature_table\traffic)
+======================================================================
+[*] Total rows recorded: 480
+
+--- Schema ---
+root
+ |-- zone_id: string (nullable = true)
+ |-- window_start: timestamp (nullable = true)
+ |-- window_end: timestamp (nullable = true)
+ |-- traffic_record_count: long (nullable = false)
+ |-- avg_speed_kmph: double (nullable = true)
+ |-- min_speed_kmph: double (nullable = true)
+ |-- max_speed_kmph: double (nullable = true)
+ |-- zone_name: string (nullable = true)
+ |-- mapping_type: string (nullable = true)
+ |-- mapping_description: string (nullable = true)
+ |-- min_lat: double (nullable = true)
+ |-- max_lat: double (nullable = true)
+ |-- min_lon: double (nullable = true)
+ |-- max_lon: double (nullable = true)
+
+[*] Actual columns: ['zone_id', 'window_start', 'window_end', 'traffic_record_count', 'avg_speed_kmph', 'min_speed_kmph', 'max_speed_kmph', 'zone_name', 'mapping_type', 'mapping_description', 'min_lat', 'max_lat', 'min_lon', 'max_lon']
+
+--- Sample Records (First 5) ---
++-------+-------------------+-------------------+--------------------+--------------+--------------+--------------+---------------------+--------------------------------+----------------------------------------------------------------------------------------------+-------+-------+-------+-------+
+|zone_id|window_start       |window_end         |traffic_record_count|avg_speed_kmph|min_speed_kmph|max_speed_kmph|zone_name            |mapping_type                    |mapping_description                                                                           |min_lat|max_lat|min_lon|max_lon|
++-------+-------------------+-------------------+--------------------+--------------+--------------+--------------+---------------------+--------------------------------+----------------------------------------------------------------------------------------------+-------+-------+-------+-------+
+|zone_3 |2012-03-01 01:55:00|2012-03-01 02:00:00|32                  |93.06         |48.28         |111.45        |San Gabriel Foothills|Provisional Operational Grouping|East Foothills and Pasadena with EPA Sites 2005/0002 and deterministic PeMS modulo partition 3|NULL   |NULL   |NULL   |NULL   |
+|zone_1 |2012-03-01 01:30:00|2012-03-01 01:35:00|39                  |100.77        |72.06         |112.05        |Downtown Core        |Provisional Operational Grouping|Downtown LA Core arterial zone with EPA Site 1103 and deterministic PeMS modulo partition 1   |NULL   |NULL   |NULL   |NULL   |
+|zone_1 |2012-03-01 03:40:00|2012-03-01 03:45:00|39                  |97.68         |77.05         |109.84        |Downtown Core        |Provisional Operational Grouping|Downtown LA Core arterial zone with EPA Site 1103 and deterministic PeMS modulo partition 1   |NULL   |NULL   |NULL   |NULL   |
+|zone_1 |2012-03-01 04:50:00|2012-03-01 04:55:00|39                  |100.45        |73.57         |110.84        |Downtown Core        |Provisional Operational Grouping|Downtown LA Core arterial zone with EPA Site 1103 and deterministic PeMS modulo partition 1   |NULL   |NULL   |NULL   |NULL   |
+|zone_1 |2012-03-01 02:05:00|2012-03-01 02:10:00|39                  |100.67        |72.62         |112.65        |Downtown Core        |Provisional Operational Grouping|Downtown LA Core arterial zone with EPA Site 1103 and deterministic PeMS modulo partition 1   |NULL   |NULL   |NULL   |NULL   |
++-------+-------------------+-------------------+--------------------+--------------+--------------+--------------+---------------------+--------------------------------+----------------------------------------------------------------------------------------------+-------+-------+-------+-------+
+only showing top 5 rows
+
+[*] Distinct zones represented (5): ['zone_5', 'zone_1', 'zone_4', 'zone_2', 'zone_3']
+[*] 5-minute tumbling window duration check: PASS (All windows = 300s)
+[*] Earliest window: 2012-03-01 05:30:00
+[*] Latest window:   2012-03-01 13:40:00
+[*] Unique feature key check (window_start, zone_id): PASS (Zero duplicates)
+[*] Static zone metadata join check: PASS (100% matched zone_name)
+
+[PASS] All verification assertions PASSED for TRAFFIC!
+
+======================================================================
+VERIFYING FEATURE DATASET: AQI (C:\Users\Tokachichu SriCharan\OneDrive\Documents\GitHub\urbanix\data\feature_table\aqi)
+======================================================================
+[*] Total rows recorded: 64
+
+--- Schema ---
+root
+ |-- zone_id: string (nullable = true)
+ |-- window_start: timestamp (nullable = true)
+ |-- window_end: timestamp (nullable = true)
+ |-- aqi_record_count: long (nullable = false)
+ |-- avg_pm25: double (nullable = true)
+ |-- min_pm25: double (nullable = true)
+ |-- max_pm25: double (nullable = true)
+ |-- avg_aqi: double (nullable = true)
+ |-- zone_name: string (nullable = true)
+ |-- mapping_type: string (nullable = true)
+ |-- mapping_description: string (nullable = true)
+ |-- min_lat: double (nullable = true)
+ |-- max_lat: double (nullable = true)
+ |-- min_lon: double (nullable = true)
+ |-- max_lon: double (nullable = true)
+
+[*] Actual columns: ['zone_id', 'window_start', 'window_end', 'aqi_record_count', 'avg_pm25', 'min_pm25', 'max_pm25', 'avg_aqi', 'zone_name', 'mapping_type', 'mapping_description', 'min_lat', 'max_lat', 'min_lon', 'max_lon']
+
+--- Sample Records (First 5) ---
++-------+-------------------+-------------------+----------------+--------+--------+--------+-------+---------------------+--------------------------------+-----------------------------------------------------------------------------------------------+-------+-------+-------+-------+
+|zone_id|window_start       |window_end         |aqi_record_count|avg_pm25|min_pm25|max_pm25|avg_aqi|zone_name            |mapping_type                    |mapping_description                                                                            |min_lat|max_lat|min_lon|max_lon|
++-------+-------------------+-------------------+----------------+--------+--------+--------+-------+---------------------+--------------------------------+-----------------------------------------------------------------------------------------------+-------+-------+-------+-------+
+|zone_3 |2012-01-16 00:00:00|2012-01-16 00:05:00|2               |10.8    |10.8    |10.8    |54.0   |San Gabriel Foothills|Provisional Operational Grouping|East Foothills and Pasadena with EPA Sites 2005/0002 and deterministic PeMS modulo partition 3 |NULL   |NULL   |NULL   |NULL   |
+|zone_3 |2012-02-06 00:00:00|2012-02-06 00:05:00|1               |5.2     |5.2     |5.2     |29.0   |San Gabriel Foothills|Provisional Operational Grouping|East Foothills and Pasadena with EPA Sites 2005/0002 and deterministic PeMS modulo partition 3 |NULL   |NULL   |NULL   |NULL   |
+|zone_3 |2012-06-02 00:00:00|2012-06-02 00:05:00|1               |13.8    |13.8    |13.8    |60.0   |San Gabriel Foothills|Provisional Operational Grouping|East Foothills and Pasadena with EPA Sites 2005/0002 and deterministic PeMS modulo partition 3 |NULL   |NULL   |NULL   |NULL   |
+|zone_2 |2012-03-09 00:00:00|2012-03-09 00:05:00|1               |9.9     |9.9     |9.9     |52.0   |San Fernando Valley  |Provisional Operational Grouping|San Fernando Valley corridor with EPA Sites 1002/1201 and deterministic PeMS modulo partition 2|NULL   |NULL   |NULL   |NULL   |
+|zone_2 |2012-03-06 00:00:00|2012-03-06 00:05:00|1               |13.0    |13.0    |13.0    |58.0   |San Fernando Valley  |Provisional Operational Grouping|San Fernando Valley corridor with EPA Sites 1002/1201 and deterministic PeMS modulo partition 2|NULL   |NULL   |NULL   |NULL   |
++-------+-------------------+-------------------+----------------+--------+--------+--------+-------+---------------------+--------------------------------+-----------------------------------------------------------------------------------------------+-------+-------+-------+-------+
+only showing top 5 rows
+
+[*] Distinct zones represented (2): ['zone_2', 'zone_3']
+[*] 5-minute tumbling window duration check: PASS (All windows = 300s)
+[*] Earliest window: 2012-01-01 05:30:00
+[*] Latest window:   2012-06-26 05:35:00
+[*] Unique feature key check (window_start, zone_id): PASS (Zero duplicates)
+[*] Static zone metadata join check: PASS (100% matched zone_name)
+
+[PASS] All verification assertions PASSED for AQI!
+
+======================================================================
+VERIFYING FEATURE DATASET: WEATHER (C:\Users\Tokachichu SriCharan\OneDrive\Documents\GitHub\urbanix\data\feature_table\weather)
+======================================================================
+[*] Total rows recorded: 45
+
+--- Schema ---
+root
+ |-- zone_id: string (nullable = true)
+ |-- window_start: timestamp (nullable = true)
+ |-- window_end: timestamp (nullable = true)
+ |-- weather_record_count: long (nullable = false)
+ |-- avg_temperature_c: double (nullable = true)
+ |-- min_temperature_c: double (nullable = true)
+ |-- max_temperature_c: double (nullable = true)
+ |-- avg_humidity_pct: double (nullable = true)
+ |-- zone_name: string (nullable = true)
+ |-- mapping_type: string (nullable = true)
+ |-- mapping_description: string (nullable = true)
+ |-- min_lat: double (nullable = true)
+ |-- max_lat: double (nullable = true)
+ |-- min_lon: double (nullable = true)
+ |-- max_lon: double (nullable = true)
+
+[*] Actual columns: ['zone_id', 'window_start', 'window_end', 'weather_record_count', 'avg_temperature_c', 'min_temperature_c', 'max_temperature_c', 'avg_humidity_pct', 'zone_name', 'mapping_type', 'mapping_description', 'min_lat', 'max_lat', 'min_lon', 'max_lon']
+
+--- Sample Records (First 5) ---
++-------+-------------------+-------------------+--------------------+-----------------+-----------------+-----------------+----------------+-------------------+--------------------------------+-------------------------------------------------------------------------------------------------------------+-------+-------+-------+-------+
+|zone_id|window_start       |window_end         |weather_record_count|avg_temperature_c|min_temperature_c|max_temperature_c|avg_humidity_pct|zone_name          |mapping_type                    |mapping_description                                                                                          |min_lat|max_lat|min_lon|max_lon|
++-------+-------------------+-------------------+--------------------+-----------------+-----------------+-----------------+----------------+-------------------+--------------------------------+-------------------------------------------------------------------------------------------------------------+-------+-------+-------+-------+
+|zone_1 |2012-10-01 20:00:00|2012-10-01 20:05:00|1                   |18.69            |18.69            |18.69            |88.0            |Downtown Core      |Provisional Operational Grouping|Downtown LA Core arterial zone with EPA Site 1103 and deterministic PeMS modulo partition 1                  |NULL   |NULL   |NULL   |NULL   |
+|zone_2 |2012-10-01 15:00:00|2012-10-01 15:05:00|2                   |18.71            |18.71            |18.71            |88.0            |San Fernando Valley|Provisional Operational Grouping|San Fernando Valley corridor with EPA Sites 1002/1201 and deterministic PeMS modulo partition 2              |NULL   |NULL   |NULL   |NULL   |
+|zone_2 |2012-10-01 19:00:00|2012-10-01 19:05:00|1                   |18.69            |18.69            |18.69            |88.0            |San Fernando Valley|Provisional Operational Grouping|San Fernando Valley corridor with EPA Sites 1002/1201 and deterministic PeMS modulo partition 2              |NULL   |NULL   |NULL   |NULL   |
+|zone_5 |2012-10-01 19:00:00|2012-10-01 19:05:00|1                   |18.69            |18.69            |18.69            |88.0            |Harbor & Outer Ring|Provisional Operational Grouping|Long Beach Harbor and outer perimeter with EPA Sites 4002/4004/9033 and deterministic PeMS modulo partition 5|NULL   |NULL   |NULL   |NULL   |
+|zone_5 |2012-10-01 18:00:00|2012-10-01 18:05:00|1                   |18.7             |18.7             |18.7             |88.0            |Harbor & Outer Ring|Provisional Operational Grouping|Long Beach Harbor and outer perimeter with EPA Sites 4002/4004/9033 and deterministic PeMS modulo partition 5|NULL   |NULL   |NULL   |NULL   |
++-------+-------------------+-------------------+--------------------+-----------------+-----------------+-----------------+----------------+-------------------+--------------------------------+-------------------------------------------------------------------------------------------------------------+-------+-------+-------+-------+
+only showing top 5 rows
+
+[*] Distinct zones represented (5): ['zone_5', 'zone_1', 'zone_4', 'zone_2', 'zone_3']
+[*] 5-minute tumbling window duration check: PASS (All windows = 300s)
+[*] Earliest window: 2012-10-01 18:30:00
+[*] Latest window:   2012-10-02 02:35:00
+[*] Unique feature key check (window_start, zone_id): PASS (Zero duplicates)
+[*] Static zone metadata join check: PASS (100% matched zone_name)
+
+[PASS] All verification assertions PASSED for WEATHER!
+
+======================================================================
+FINAL VERIFICATION SUMMARY
+======================================================================
+  TRAFFIC   : [PASS]
+  AQI       : [PASS]
+  WEATHER   : [PASS]
+
+All feature tables verified successfully.
+2026-10-24 23:22:34,745 [INFO] [Urbanix-Verifier] Closing down clientserver connection
+SUCCESS: The process with PID 33324 (child process of PID 2844) has been terminated.
+SUCCESS: The process with PID 2844 (child process of PID 29652) has been terminated.
+SUCCESS: The process with PID 29652 (child process of PID 25956) has been terminated.

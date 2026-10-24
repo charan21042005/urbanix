@@ -1,0 +1,505 @@
+﻿=== URBANIX PHASE H: FASTAPI ENDPOINTS & RESPONSES AUDIT ===
+Timestamp: 2026-10-24 23:27:46 +05:30
+--- Endpoint 1: GET /health ---
+--- Endpoint 2: GET /api/predictions ---
+{
+    "value":  [
+                  {
+                      "zone_id":  "zone_1",
+                      "zone_name":  "Downtown Core",
+                      "window_start":  "2012-03-01 08:05:00",
+                      "window_end":  "2012-03-01 08:10:00",
+                      "predicted_speed_kmph":  77.67,
+                      "status":  "FREE_FLOWING",
+                      "status_color":  "green",
+                      "traffic_record_count":  37,
+                      "latitude":  34.049800000000005,
+                      "longitude":  -118.2526,
+                      "predicted_pm25":  null,
+                      "model_provenance":  "LinearRegression_MLlib",
+                      "computed_at":  "2012-03-01T08:10:00Z",
+                      "is_stale":  true,
+                      "age_seconds":  462275270.26,
+                      "freshness_status":  "STALE"
+                  },
+                  {
+                      "zone_id":  "zone_2",
+                      "zone_name":  "San Fernando Valley",
+                      "window_start":  "2012-03-01 08:05:00",
+                      "window_end":  "2012-03-01 08:10:00",
+                      "predicted_speed_kmph":  81.03,
+                      "status":  "FREE_FLOWING",
+                      "status_color":  "green",
+                      "traffic_record_count":  46,
+                      "latitude":  34.181975,
+                      "longitude":  -118.488025,
+                      "predicted_pm25":  null,
+                      "model_provenance":  "LinearRegression_MLlib",
+                      "computed_at":  "2012-03-01T08:10:00Z",
+                      "is_stale":  true,
+                      "age_seconds":  462275270.26,
+                      "freshness_status":  "STALE"
+                  },
+                  {
+                      "zone_id":  "zone_3",
+                      "zone_name":  "San Gabriel Foothills",
+                      "window_start":  "2012-03-01 08:05:00",
+                      "window_end":  "2012-03-01 08:10:00",
+                      "predicted_speed_kmph":  83.58,
+                      "status":  "FREE_FLOWING",
+                      "status_color":  "green",
+                      "traffic_record_count":  32,
+                      "latitude":  34.133925,
+                      "longitude":  -118.065825,
+                      "predicted_pm25":  null,
+                      "model_provenance":  "LinearRegression_MLlib",
+                      "computed_at":  "2012-03-01T08:10:00Z",
+                      "is_stale":  true,
+                      "age_seconds":  462275270.26,
+                      "freshness_status":  "STALE"
+                  },
+                  {
+                      "zone_id":  "zone_4",
+                      "zone_name":  "South Central Corridor",
+                      "window_start":  "2012-03-01 08:05:00",
+                      "window_end":  "2012-03-01 08:10:00",
+                      "predicted_speed_kmph":  75.95,
+                      "status":  "FREE_FLOWING",
+                      "status_color":  "green",
+                      "traffic_record_count":  43,
+                      "latitude":  33.96015,
+                      "longitude":  -118.188525,
+                      "predicted_pm25":  null,
+                      "model_provenance":  "LinearRegression_MLlib",
+                      "computed_at":  "2012-03-01T08:10:00Z",
+                      "is_stale":  true,
+                      "age_seconds":  462275270.26,
+                      "freshness_status":  "STALE"
+                  },
+                  {
+                      "zone_id":  "zone_5",
+                      "zone_name":  "Harbor \u0026 Outer Ring",
+                      "window_start":  "2012-03-01 08:05:00",
+                      "window_end":  "2012-03-01 08:10:00",
+                      "predicted_speed_kmph":  77.67,
+                      "status":  "FREE_FLOWING",
+                      "status_color":  "green",
+                      "traffic_record_count":  44,
+                      "latitude":  33.764475000000004,
+                      "longitude":  -118.183175,
+                      "predicted_pm25":  null,
+                      "model_provenance":  "LinearRegression_MLlib",
+                      "computed_at":  "2012-03-01T08:10:00Z",
+                      "is_stale":  true,
+                      "age_seconds":  462275270.26,
+                      "freshness_status":  "STALE"
+                  }
+              ],
+    "Count":  5
+}
+--- Endpoint 3: GET /api/route ---
+{
+    "value":  [
+                  {
+                      "origin_id":  1,
+                      "destination_id":  1,
+                      "path":  [
+                                   1
+                               ],
+                      "path_formatted":  "1",
+                      "total_travel_time_hours":  0.0,
+                      "total_travel_time_minutes":  0.0,
+                      "is_reachable":  true,
+                      "computed_at":  "2026-10-22T10:44:34Z",
+                      "prediction_zones_used":  5,
+                      "fallback_applied":  false,
+                      "is_stale":  true,
+                      "age_seconds":  198795.57,
+                      "freshness_status":  "STALE"
+                  },
+                  {
+                      "origin_id":  1,
+                      "destination_id":  2,
+                      "path":  [
+                                   1,
+                                   2
+                               ],
+                      "path_formatted":  "1 -\u003e 2",
+                      "total_travel_time_hours":  0.01544998068752414,
+                      "total_travel_time_minutes":  0.9269988412514484,
+                      "is_reachable":  true,
+                      "computed_at":  "2026-10-22T10:44:34Z",
+                      "prediction_zones_used":  5,
+                      "fallback_applied":  false,
+                      "is_stale":  true,
+                      "age_seconds":  198795.57,
+                      "freshness_status":  "STALE"
+                  },
+                  {
+                      "origin_id":  1,
+                      "destination_id":  3,
+                      "path":  [
+                                   1,
+                                   2,
+                                   3
+                               ],
+                      "path_formatted":  "1 -\u003e 2 -\u003e 3",
+                      "total_travel_time_hours":  0.027037466203167246,
+                      "total_travel_time_minutes":  1.6222479721900347,
+                      "is_reachable":  true,
+                      "computed_at":  "2026-10-22T10:44:34Z",
+                      "prediction_zones_used":  5,
+                      "fallback_applied":  false,
+                      "is_stale":  true,
+                      "age_seconds":  198795.57,
+                      "freshness_status":  "STALE"
+                  },
+                  {
+                      "origin_id":  1,
+                      "destination_id":  4,
+                      "path":  [
+                                   1,
+                                   4
+                               ],
+                      "path_formatted":  "1 -\u003e 4",
+                      "total_travel_time_hours":  0.010299987125016095,
+                      "total_travel_time_minutes":  0.6179992275009657,
+                      "is_reachable":  true,
+                      "computed_at":  "2026-10-22T10:44:34Z",
+                      "prediction_zones_used":  5,
+                      "fallback_applied":  false,
+                      "is_stale":  true,
+                      "age_seconds":  198795.58,
+                      "freshness_status":  "STALE"
+                  },
+                  {
+                      "origin_id":  1,
+                      "destination_id":  5,
+                      "path":  [
+                                   1,
+                                   2,
+                                   3,
+                                   5
+                               ],
+                      "path_formatted":  "1 -\u003e 2 -\u003e 3 -\u003e 5",
+                      "total_travel_time_hours":  0.2516456360168165,
+                      "total_travel_time_minutes":  15.09873816100899,
+                      "is_reachable":  true,
+                      "computed_at":  "2026-10-22T10:44:34Z",
+                      "prediction_zones_used":  5,
+                      "fallback_applied":  false,
+                      "is_stale":  true,
+                      "age_seconds":  198795.58,
+                      "freshness_status":  "STALE"
+                  },
+                  {
+                      "origin_id":  1,
+                      "destination_id":  6,
+                      "path":  [
+                                   1,
+                                   2,
+                                   3,
+                                   5,
+                                   6
+                               ],
+                      "path_formatted":  "1 -\u003e 2 -\u003e 3 -\u003e 5 -\u003e 6",
+                      "total_travel_time_hours":  0.33186283952169127,
+                      "total_travel_time_minutes":  19.911770371301476,
+                      "is_reachable":  true,
+                      "computed_at":  "2026-10-22T10:44:34Z",
+                      "prediction_zones_used":  5,
+                      "fallback_applied":  false,
+                      "is_stale":  true,
+                      "age_seconds":  198795.58,
+                      "freshness_status":  "STALE"
+                  },
+                  {
+                      "origin_id":  1,
+                      "destination_id":  7,
+                      "path":  [
+                                   1,
+                                   2,
+                                   3,
+                                   5,
+                                   7
+                               ],
+                      "path_formatted":  "1 -\u003e 2 -\u003e 3 -\u003e 5 -\u003e 7",
+                      "total_travel_time_hours":  0.28003018494931065,
+                      "total_travel_time_minutes":  16.801811096958637,
+                      "is_reachable":  true,
+                      "computed_at":  "2026-10-22T10:44:34Z",
+                      "prediction_zones_used":  5,
+                      "fallback_applied":  false,
+                      "is_stale":  true,
+                      "age_seconds":  198795.58,
+                      "freshness_status":  "STALE"
+                  },
+                  {
+                      "origin_id":  1,
+                      "destination_id":  8,
+                      "path":  [
+                                   1,
+                                   2,
+                                   3,
+                                   5,
+                                   7,
+                                   8
+                               ],
+                      "path_formatted":  "1 -\u003e 2 -\u003e 3 -\u003e 5 -\u003e 7 -\u003e 8",
+                      "total_travel_time_hours":  0.3429698369300585,
+                      "total_travel_time_minutes":  20.57819021580351,
+                      "is_reachable":  true,
+                      "computed_at":  "2026-10-22T10:44:34Z",
+                      "prediction_zones_used":  5,
+                      "fallback_applied":  false,
+                      "is_stale":  true,
+                      "age_seconds":  198795.58,
+                      "freshness_status":  "STALE"
+                  },
+                  {
+                      "origin_id":  1,
+                      "destination_id":  9,
+                      "path":  [
+                                   1,
+                                   9
+                               ],
+                      "path_formatted":  "1 -\u003e 9",
+                      "total_travel_time_hours":  0.17348648001914335,
+                      "total_travel_time_minutes":  10.409188801148602,
+                      "is_reachable":  true,
+                      "computed_at":  "2026-10-22T10:44:34Z",
+                      "prediction_zones_used":  5,
+                      "fallback_applied":  false,
+                      "is_stale":  true,
+                      "age_seconds":  198795.58,
+                      "freshness_status":  "STALE"
+                  },
+                  {
+                      "origin_id":  1,
+                      "destination_id":  10,
+                      "path":  [
+                                   1,
+                                   9,
+                                   10
+                               ],
+                      "path_formatted":  "1 -\u003e 9 -\u003e 10",
+                      "total_travel_time_hours":  0.19502273271117493,
+                      "total_travel_time_minutes":  11.701363962670495,
+                      "is_reachable":  true,
+                      "computed_at":  "2026-10-22T10:44:34Z",
+                      "prediction_zones_used":  5,
+                      "fallback_applied":  false,
+                      "is_stale":  true,
+                      "age_seconds":  198795.58,
+                      "freshness_status":  "STALE"
+                  },
+                  {
+                      "origin_id":  1,
+                      "destination_id":  11,
+                      "path":  [
+                                   1,
+                                   9,
+                                   11
+                               ],
+                      "path_formatted":  "1 -\u003e 9 -\u003e 11",
+                      "total_travel_time_hours":  0.2596314907872697,
+                      "total_travel_time_minutes":  15.577889447236183,
+                      "is_reachable":  true,
+                      "computed_at":  "2026-10-22T10:44:34Z",
+                      "prediction_zones_used":  5,
+                      "fallback_applied":  false,
+                      "is_stale":  true,
+                      "age_seconds":  198795.58,
+                      "freshness_status":  "STALE"
+                  },
+                  {
+                      "origin_id":  1,
+                      "destination_id":  12,
+                      "path":  [
+                                   1,
+                                   9,
+                                   10,
+                                   12
+                               ],
+                      "path_formatted":  "1 -\u003e 9 -\u003e 10 -\u003e 12",
+                      "total_travel_time_hours":  0.416367552045944,
+                      "total_travel_time_minutes":  24.98205312275664,
+                      "is_reachable":  true,
+                      "computed_at":  "2026-10-22T10:44:34Z",
+                      "prediction_zones_used":  5,
+                      "fallback_applied":  false,
+                      "is_stale":  true,
+                      "age_seconds":  198795.58,
+                      "freshness_status":  "STALE"
+                  },
+                  {
+                      "origin_id":  1,
+                      "destination_id":  13,
+                      "path":  [
+                                   1,
+                                   2,
+                                   14,
+                                   13
+                               ],
+                      "path_formatted":  "1 -\u003e 2 -\u003e 14 -\u003e 13",
+                      "total_travel_time_hours":  0.23533148167501589,
+                      "total_travel_time_minutes":  14.119888900500953,
+                      "is_reachable":  true,
+                      "computed_at":  "2026-10-22T10:44:34Z",
+                      "prediction_zones_used":  5,
+                      "fallback_applied":  false,
+                      "is_stale":  true,
+                      "age_seconds":  198795.58,
+                      "freshness_status":  "STALE"
+                  },
+                  {
+                      "origin_id":  1,
+                      "destination_id":  14,
+                      "path":  [
+                                   1,
+                                   2,
+                                   14
+                               ],
+                      "path_formatted":  "1 -\u003e 2 -\u003e 14",
+                      "total_travel_time_hours":  0.0983992894432845,
+                      "total_travel_time_minutes":  5.903957366597069,
+                      "is_reachable":  true,
+                      "computed_at":  "2026-10-22T10:44:34Z",
+                      "prediction_zones_used":  5,
+                      "fallback_applied":  false,
+                      "is_stale":  true,
+                      "age_seconds":  198795.58,
+                      "freshness_status":  "STALE"
+                  },
+                  {
+                      "origin_id":  1,
+                      "destination_id":  15,
+                      "path":  [
+                                   1,
+                                   2,
+                                   14,
+                                   16,
+                                   15
+                               ],
+                      "path_formatted":  "1 -\u003e 2 -\u003e 14 -\u003e 16 -\u003e 15",
+                      "total_travel_time_hours":  0.3169641347362404,
+                      "total_travel_time_minutes":  19.017848084174425,
+                      "is_reachable":  true,
+                      "computed_at":  "2026-10-22T10:44:34Z",
+                      "prediction_zones_used":  5,
+                      "fallback_applied":  false,
+                      "is_stale":  true,
+                      "age_seconds":  198795.58,
+                      "freshness_status":  "STALE"
+                  },
+                  {
+                      "origin_id":  1,
+                      "destination_id":  16,
+                      "path":  [
+                                   1,
+                                   2,
+                                   14,
+                                   16
+                               ],
+                      "path_formatted":  "1 -\u003e 2 -\u003e 14 -\u003e 16",
+                      "total_travel_time_hours":  0.18793187667172426,
+                      "total_travel_time_minutes":  11.275912600303455,
+                      "is_reachable":  true,
+                      "computed_at":  "2026-10-22T10:44:34Z",
+                      "prediction_zones_used":  5,
+                      "fallback_applied":  false,
+                      "is_stale":  true,
+                      "age_seconds":  198795.58,
+                      "freshness_status":  "STALE"
+                  },
+                  {
+                      "origin_id":  1,
+                      "destination_id":  17,
+                      "path":  [
+                                   1,
+                                   2,
+                                   14,
+                                   13,
+                                   18,
+                                   17
+                               ],
+                      "path_formatted":  "1 -\u003e 2 -\u003e 14 -\u003e 13 -\u003e 18 -\u003e 17",
+                      "total_travel_time_hours":  0.42201874831593256,
+                      "total_travel_time_minutes":  25.321124898955954,
+                      "is_reachable":  true,
+                      "computed_at":  "2026-10-22T10:44:34Z",
+                      "prediction_zones_used":  5,
+                      "fallback_applied":  false,
+                      "is_stale":  true,
+                      "age_seconds":  198795.58,
+                      "freshness_status":  "STALE"
+                  },
+                  {
+                      "origin_id":  1,
+                      "destination_id":  18,
+                      "path":  [
+                                   1,
+                                   2,
+                                   14,
+                                   13,
+                                   18
+                               ],
+                      "path_formatted":  "1 -\u003e 2 -\u003e 14 -\u003e 13 -\u003e 18",
+                      "total_travel_time_hours":  0.4039937708471544,
+                      "total_travel_time_minutes":  24.23962625082926,
+                      "is_reachable":  true,
+                      "computed_at":  "2026-10-22T10:44:34Z",
+                      "prediction_zones_used":  5,
+                      "fallback_applied":  false,
+                      "is_stale":  true,
+                      "age_seconds":  198795.58,
+                      "freshness_status":  "STALE"
+                  },
+                  {
+                      "origin_id":  1,
+                      "destination_id":  19,
+                      "path":  [
+                                   1,
+                                   2,
+                                   14,
+                                   13,
+                                   18,
+                                   17,
+                                   19
+                               ],
+                      "path_formatted":  "1 -\u003e 2 -\u003e 14 -\u003e 13 -\u003e 18 -\u003e 17 -\u003e 19",
+                      "total_travel_time_hours":  0.47609368072226704,
+                      "total_travel_time_minutes":  28.565620843336024,
+                      "is_reachable":  true,
+                      "computed_at":  "2026-10-22T10:44:34Z",
+                      "prediction_zones_used":  5,
+                      "fallback_applied":  false,
+                      "is_stale":  true,
+                      "age_seconds":  198795.58,
+                      "freshness_status":  "STALE"
+                  },
+                  {
+                      "origin_id":  1,
+                      "destination_id":  20,
+                      "path":  [
+                                   1,
+                                   2,
+                                   14,
+                                   13,
+                                   18,
+                                   20
+                               ],
+                      "path_formatted":  "1 -\u003e 2 -\u003e 14 -\u003e 13 -\u003e 18 -\u003e 20",
+                      "total_travel_time_hours":  0.4902561630191642,
+                      "total_travel_time_minutes":  29.415369781149852,
+                      "is_reachable":  true,
+                      "computed_at":  "2026-10-22T10:44:34Z",
+                      "prediction_zones_used":  5,
+                      "fallback_applied":  false,
+                      "is_stale":  true,
+                      "age_seconds":  198795.58,
+                      "freshness_status":  "STALE"
+                  }
+              ],
+    "Count":  20
+}

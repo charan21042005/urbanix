@@ -1,0 +1,113 @@
+﻿=== URBANIX PHASE G: SCALA SPARK GRAPHX ROUTING ENGINE AUDIT ===
+Timestamp: 2026-10-24 23:25:15 +05:30
+[info] welcome to sbt 1.9.9 (Oracle Corporation Java 1.8.0_202)
+[info] loading project definition from C:\Users\Tokachichu SriCharan\OneDrive\Documents\GitHub\urbanix\services\graphx-reroute\project
+[info] loading settings for project graphx-reroute from build.sbt ...
+[info] set current project to urbanix-graphx-reroute (in build file:/C:/Users/Tokachichu%20SriCharan/OneDrive/Documents/GitHub/urbanix/services/graphx-reroute/)
+[info] RouteRecommenderSpec:
+.\sbt.bat : Using Spark's default log4j profile: org/apache/spark/log4j2-defaults.properties
+At line:5 char:1
++ .\sbt.bat --batch test 2>&1 | Out-File -FilePath "..\..\$graphxLog" - ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Using Spark's d...ults.properties:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+26/10/24 23:25:28 INFO SparkContext: Running Spark version 3.5.0
+26/10/24 23:25:28 INFO SparkContext: OS info Windows 10, 10.0, amd64
+26/10/24 23:25:28 INFO SparkContext: Java version 1.8.0_202
+26/10/24 23:25:29 INFO ResourceUtils: ==============================================================
+26/10/24 23:25:29 INFO ResourceUtils: No custom resources configured for spark.driver.
+26/10/24 23:25:29 INFO ResourceUtils: ==============================================================
+26/10/24 23:25:29 INFO SparkContext: Submitted application: RouteRecommenderSpec
+26/10/24 23:25:29 INFO ResourceProfile: Default ResourceProfile created, executor resources: Map(cores -> name: cores, 
+amount: 1, script: , vendor: , memory -> name: memory, amount: 1024, script: , vendor: , offHeap -> name: offHeap, 
+amount: 0, script: , vendor: ), task resources: Map(cpus -> name: cpus, amount: 1.0)
+26/10/24 23:25:29 INFO ResourceProfile: Limiting resource is cpu
+26/10/24 23:25:29 INFO ResourceProfileManager: Added ResourceProfile id: 0
+26/10/24 23:25:29 INFO SecurityManager: Changing view acls to: Tokachichu SriCharan
+26/10/24 23:25:29 INFO SecurityManager: Changing modify acls to: Tokachichu SriCharan
+26/10/24 23:25:29 INFO SecurityManager: Changing view acls groups to: 
+26/10/24 23:25:29 INFO SecurityManager: Changing modify acls groups to: 
+26/10/24 23:25:29 INFO SecurityManager: SecurityManager: authentication disabled; ui acls disabled; users with view 
+permissions: Tokachichu SriCharan; groups with view permissions: EMPTY; users with modify permissions: Tokachichu 
+SriCharan; groups with modify permissions: EMPTY
+26/10/24 23:25:29 INFO Utils: Successfully started service 'sparkDriver' on port 53248.
+26/10/24 23:25:30 INFO SparkEnv: Registering MapOutputTracker
+26/10/24 23:25:30 INFO SparkEnv: Registering BlockManagerMaster
+26/10/24 23:25:30 INFO BlockManagerMasterEndpoint: Using org.apache.spark.storage.DefaultTopologyMapper for getting 
+topology information
+26/10/24 23:25:30 INFO BlockManagerMasterEndpoint: BlockManagerMasterEndpoint up
+26/10/24 23:25:30 INFO SparkEnv: Registering BlockManagerMasterHeartbeat
+26/10/24 23:25:30 INFO DiskBlockManager: Created local directory at C:\Users\Tokachichu 
+SriCharan\AppData\Local\Temp\blockmgr-d17b47eb-0538-4449-bda4-04c5393f6a23
+26/10/24 23:25:30 INFO MemoryStore: MemoryStore started with capacity 912.3 MiB
+26/10/24 23:25:30 INFO SparkEnv: Registering OutputCommitCoordinator
+26/10/24 23:25:30 INFO Executor: Starting executor ID driver on host CHARAN
+26/10/24 23:25:30 INFO Executor: OS info Windows 10, 10.0, amd64
+26/10/24 23:25:30 INFO Executor: Java version 1.8.0_202
+26/10/24 23:25:30 INFO Executor: Starting executor with user classpath (userClassPathFirst = false): ''
+26/10/24 23:25:30 INFO Executor: Created or updated repl class loader 
+org.apache.spark.util.MutableURLClassLoader@125a2594 for default.
+26/10/24 23:25:30 INFO Utils: Successfully started service 'org.apache.spark.network.netty.NettyBlockTransferService' 
+on port 53259.
+26/10/24 23:25:30 INFO NettyBlockTransferService: Server created on CHARAN 127.0.0.1:53259
+26/10/24 23:25:30 INFO BlockManager: Using org.apache.spark.storage.RandomBlockReplicationPolicy for block replication 
+policy
+26/10/24 23:25:30 INFO BlockManagerMaster: Registering BlockManager BlockManagerId(driver, CHARAN, 53259, None)
+26/10/24 23:25:30 INFO BlockManagerMasterEndpoint: Registering block manager CHARAN:53259 with 912.3 MiB RAM, 
+BlockManagerId(driver, CHARAN, 53259, None)
+26/10/24 23:25:30 INFO BlockManagerMaster: Registered BlockManager BlockManagerId(driver, CHARAN, 53259, None)
+26/10/24 23:25:30 INFO BlockManager: Initialized BlockManager: BlockManagerId(driver, CHARAN, 53259, None)
+[info] - Test 1: loadLatestZonePredictions selects the single latest window record deterministically
+[info] - Test 2: Deterministic tie-breaking on identical timestamps
+[info] - Test 3: Schema flexibility supports predicted_speed alias and prediction_timestamp
+[info] - Test 4: Filters invalid, null, NaN, zero, and unphysical speeds (> 250 km/h)
+[WARN] Feature table path does not exist: C:\Users\TOKACH~1\AppData\Local\Temp\urbanix_day9_test_832019620619756936\nonexistent_directory_123. Using free-flow fallback for all zones.
+[info] - Test 5: Nonexistent or empty feature table defaults to fallback safely without crashing
+[info] - Test 6: Edge travel time is computed using destination intersection's zone
+[info] - Test 7: Missing zone applies FREE_FLOW_FALLBACK_KMPH (40.0 km/h) and tracks fallback metrics
+[info] - Test 8: Controlled congestion change dynamically alters optimal route and cost
+[info] - Test 9: computeAndPublishRoutes writes valid schema and enforces OVERWRITE mode
+[2026-10-24 23:26:03.929] Recomputed 20 routes (20 reachable) from Origin 1 | Zones: 5 active | Edges: 40 predicted, 0 fallback | Avg Speed: 79.1 km/h
+[info] - Test 10: End-to-end executeIteration on checked-in repository datasets
+[info] ShortestPathPregelSpec:
+[info] - Formula Test 1: Travel time formula matches known valid input (4 km / 40 km/h = 0.10 h)
+[info] - Formula Test 2: Slower speed produces higher travel-time cost for identical distance
+[info] - Formula Test 3: Faster speed produces lower travel-time cost for identical distance
+[info] - Formula Test 4: Rejects zero, negative, NaN, and infinite base distances
+[info] - Formula Test 5: Rejects negative, NaN, and infinite vehicle speeds
+[info] - Formula Test 6: Zero or near-zero speed is defensively clamped to gridlock floor (1.0 km/h)
+[info] - Formula Test 7: Custom minimum speed floor is respected when provided
+[info] - Benchmark Test 8: Hand-computed minimum travel time to D matches theoretical 0.2311... h
+[info] - Benchmark Test 9: Reconstructed route sequence to D is exactly A -> C -> D
+[info] - Benchmark Test 10: Suboptimal route A -> B -> D has higher cost (0.4000 h) than chosen route
+[info] - Reroute Test 11: Increasing congestion on C -> D dynamically flips optimal route to A -> B -> D
+[info] - Robustness Test 12: Directed edge semantics are strictly respected (no reverse traversal)
+[info] - Robustness Test 13: Unreachable vertices in disconnected graph are correctly reported
+[info] - Robustness Test 14: Nonexistent origin vertex throws IllegalArgumentException
+[info] - Robustness Test 15: Invalid edge weights (negative, NaN, Inf) throw IllegalArgumentException
+[info] - Robustness Test 16: Empty graph produces empty routes without crashing
+[info] - Robustness Test 17: Equal-cost candidate routes resolve deterministically via tie-breaking
+[info] - Full Graph Test 18: Full Day 7 20-node road network reaches all 20 vertices with placeholder baseline
+[info] - Convergence Test 19: User-supplied insufficient iteration limit throws IllegalStateException when improvements remain possible
+[info] - Convergence Test 20: Non-positive maxIterations parameter throws IllegalArgumentException
+[info] RoadGraphBuilderSpec:
+[info] - Test 1: Basic graph construction matches fixture vertex and edge counts
+[info] - Test 2: Deterministic vertex mapping produces identical IDs across runs
+[info] - Test 3: Production validator flags duplicate intersection IDs and fails source audit
+[info] - Test 4: Production graph audit flags dangling edges and GraphX phantom vertices
+[info] - Test 5: Production validator flags negative, zero, and NaN road distances
+[info] - Test 6: Directed edges remain strictly directed and reverse edges are not fabricated
+[info] - Test 7: Production validator and audit flag self-loops (src_id == dst_id)
+[info] - Test 8: Empty datasets construct empty graph with 0 vertices and 0 edges
+[info] - Test 9: Source counts reconcile with graph vertices and edges on known fixture
+[info] - Test 10: GraphX operators (triplets, inDegrees, outDegrees, subgraph) execute correctly
+[info] - Test 11: Production validateAndBuildGraph throws IllegalArgumentException in strict mode on invalid data
+[info] - Test 12: Production validator distinguishes accidental duplicates from valid bidirectional links
+[info] - Test 13: Topology audit on genuine checked-in CSVs verifies strong connectivity via 100% symmetry
+[info] Run completed in 1 minute.
+[info] Total number of tests run: 43
+[info] Suites: completed 3, aborted 0
+[info] Tests: succeeded 43, failed 0, canceled 0, ignored 0, pending 0
+[info] All tests passed.
+[success] Total time: 66 s (01:06), completed 24 Oct, 2026 11:26:27 PM

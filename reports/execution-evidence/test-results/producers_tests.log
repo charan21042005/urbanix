@@ -1,0 +1,27 @@
+﻿============================= test session starts =============================
+platform win32 -- Python 3.10.11, pytest-9.1.1, pluggy-1.7.0 -- C:\Users\Tokachichu SriCharan\OneDrive\Documents\GitHub\urbanix\services\producers\venv\Scripts\python.exe
+cachedir: .pytest_cache
+rootdir: C:\Users\Tokachichu SriCharan\OneDrive\Documents\GitHub\urbanix
+collecting ... collected 19 items
+
+services/producers/tests/test_producers.py::test_traffic_zone_mapping_determinism PASSED [  5%]
+services/producers/tests/test_producers.py::test_traffic_zone_mapping_fallback PASSED [ 10%]
+services/producers/tests/test_producers.py::test_aqi_zone_mapping PASSED [ 15%]
+services/producers/tests/test_producers.py::test_aqi_zone_mapping_fallback PASSED [ 21%]
+services/producers/tests/test_producers.py::test_weather_zones PASSED    [ 26%]
+services/producers/tests/test_producers.py::test_traffic_unit_conversion PASSED [ 31%]
+services/producers/tests/test_producers.py::test_traffic_parsing_valid_fixture PASSED [ 36%]
+services/producers/tests/test_producers.py::test_traffic_parsing_malformed_rows PASSED [ 42%]
+services/producers/tests/test_producers.py::test_traffic_missing_file_raises PASSED [ 47%]
+services/producers/tests/test_producers.py::test_aqi_parsing_and_validation PASSED [ 52%]
+services/producers/tests/test_producers.py::test_aqi_missing_file_raises PASSED [ 57%]
+services/producers/tests/test_producers.py::test_weather_unit_conversion PASSED [ 63%]
+services/producers/tests/test_producers.py::test_weather_parsing_and_regional_broadcast PASSED [ 68%]
+services/producers/tests/test_producers.py::test_weather_parsing_out_of_bounds PASSED [ 73%]
+services/producers/tests/test_producers.py::test_weather_missing_file_raises PASSED [ 78%]
+services/producers/tests/test_producers.py::test_mock_kafka_delivery_callbacks PASSED [ 84%]
+services/producers/tests/test_producers.py::test_aqi_sample_file_window PASSED [ 89%]
+services/producers/tests/test_producers.py::test_traffic_sample_file_structure PASSED [ 94%]
+services/producers/tests/test_producers.py::test_weather_sample_file_pairing PASSED [100%]
+
+============================= 19 passed in 0.67s ==============================

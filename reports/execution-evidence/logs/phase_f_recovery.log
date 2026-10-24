@@ -1,0 +1,154 @@
+﻿=== URBANIX PHASE F: FAULT TOLERANCE & PROCESS CRASH RECOVERY AUDIT ===
+Timestamp: 2026-10-24 23:23:34 +05:30
+.\services\streaming\venv\Scripts\python.exe : 2026-10-24 23:23:38,007 [INFO] [Urbanix-ProcessRecovery] Child Process 
+1 started: initializing Spark and loading MLlib model...
+At line:4 char:1
++ .\services\streaming\venv\Scripts\python.exe services/streaming/test_ ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (2026-10-24 23:2... MLlib model...:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+Setting default log level to "WARN".
+To adjust logging level use sc.setLogLevel(newLevel). For SparkR, use setLogLevel(newLevel).
+2026-10-24 23:23:46,150 [INFO] [Urbanix-ProcessRecovery] Loading native Spark MLlib model from: 
+models/linear_regression
+
+[Stage 0:>                                                          (0 + 1) / 1]
+
+                                                                                
+
+[Stage 1:>                                                          (0 + 1) / 1]
+
+                                                                                
+2026-10-24 23:23:58,220 [INFO] [Urbanix-ProcessRecovery] Successfully loaded LinearRegressionModel: numFeatures=9, 
+intercept=44.0640
+2026-10-24 23:23:58,390 [INFO] [Urbanix-ProcessRecovery] Callback Server Starting
+2026-10-24 23:23:58,391 [INFO] [Urbanix-ProcessRecovery] Socket listening on ('127.0.0.1', 55351)
+2026-10-24 23:23:58,964 [INFO] [Urbanix-ProcessRecovery] Child Process 1: Streaming query active. Waiting for Batch 0 
+completion...
+2026-10-24 23:24:00,652 [INFO] [Urbanix-ProcessRecovery] Python Server ready to receive messages
+2026-10-24 23:24:00,652 [INFO] [Urbanix-ProcessRecovery] Received command c on object id p0
+
+[Stage 3:>                                                          (0 + 1) / 1]
+
+                                                                                
+2026-10-24 23:24:03,431 [INFO] [Urbanix-ProcessRecovery] [Batch 0] Ingested 5 windowed traffic rows for scoring.
+
+[Stage 6:>                                                          (0 + 1) / 1]
+
+                                                                                
+2026-10-24 23:24:06,041 [INFO] [Urbanix-ProcessRecovery] [Batch 0] Successfully appended 5 predicted traffic rows to 
+'data\feature_table\test_process_recovery_traffic'
+2026-10-24 23:24:06,625 [INFO] [Urbanix-ProcessRecovery] Child Process 1: Batch 0 committed to disk.
+2026-10-24 23:24:08,537 [INFO] [Urbanix-ProcessRecovery] Child Process 2 started: restarting streaming query from 
+existing checkpoint...
+Setting default log level to "WARN".
+To adjust logging level use sc.setLogLevel(newLevel). For SparkR, use setLogLevel(newLevel).
+2026-10-24 23:24:15,500 [INFO] [Urbanix-ProcessRecovery] Loading native Spark MLlib model from: 
+models/linear_regression
+
+[Stage 0:>                                                          (0 + 1) / 1]
+
+                                                                                
+
+[Stage 1:>                                                          (0 + 1) / 1]
+
+                                                                                
+
+[Stage 2:>                                                          (0 + 1) / 1]
+
+                                                                                
+2026-10-24 23:24:27,939 [INFO] [Urbanix-ProcessRecovery] Successfully loaded LinearRegressionModel: numFeatures=9, 
+intercept=44.0640
+2026-10-24 23:24:28,150 [INFO] [Urbanix-ProcessRecovery] Callback Server Starting
+2026-10-24 23:24:28,150 [INFO] [Urbanix-ProcessRecovery] Socket listening on ('127.0.0.1', 59553)
+2026-10-24 23:24:30,590 [INFO] [Urbanix-ProcessRecovery] Python Server ready to receive messages
+2026-10-24 23:24:30,590 [INFO] [Urbanix-ProcessRecovery] Received command c on object id p0
+
+[Stage 3:>                                                          (0 + 1) / 1]
+
+                                                                                
+2026-10-24 23:24:33,789 [INFO] [Urbanix-ProcessRecovery] [Batch 1] Ingested 5 windowed traffic rows for scoring.
+
+[Stage 6:>                                                          (0 + 1) / 1]
+
+                                                                                
+2026-10-24 23:24:36,378 [INFO] [Urbanix-ProcessRecovery] [Batch 1] Successfully appended 5 predicted traffic rows to 
+'data\feature_table\test_process_recovery_traffic'
+2026-10-24 23:24:36,795 [INFO] [Urbanix-ProcessRecovery] Child Process 2: Successfully resumed and processed available 
+stream micro-batches.
+2026-10-24 23:24:37,055 [INFO] [Urbanix-ProcessRecovery] Closing down clientserver connection
+SUCCESS: The process with PID 20004 (child process of PID 26948) has been terminated.
+SUCCESS: The process with PID 26948 (child process of PID 11588) has been terminated.
+SUCCESS: The process with PID 11588 (child process of PID 1636) has been terminated.
+Setting default log level to "WARN".
+To adjust logging level use sc.setLogLevel(newLevel). For SparkR, use setLogLevel(newLevel).
+
+[Stage 0:>                                                          (0 + 1) / 1]
+
+                                                                                
+
+[Stage 4:>                                                          (0 + 1) / 1]
+
+
+==============================================================================
+URBANIX DAY 6: GENUINE PROCESS-CRASH & CHECKPOINT RECOVERY DEMONSTRATION
+==============================================================================
+[*] Step 1: Staging initial streaming micro-batch 0 (5 zones for 07:00:00 UTC)...
+[+] Staged micro-batch 0 at infra\checkpoints\test_process_recovery_input\batch_0.json
+
+[*] Step 2: Spawning Child OS Process 1 running live Structured Streaming inference...
+[+] Child Process 1 active with PID=19224
+[*] Waiting for Child Process 1 to commit Batch 0 to checkpoint...
+[+] Batch 0 committed to disk by Child Process 1!
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+[!] INJECTING HARD OS-LEVEL PROCESS CRASH: Sending proc.kill() to PID=19224...
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+[+] Process 19224 forcefully terminated. Exit code: 1 (Non-zero confirmed)
+
+[*] Step 4: Inspecting checkpoint persistence on disk after hard kill...
+[+] Checkpoint verified: 2 commit log(s), 2 offset log(s) intact on disk.
+
+[*] Step 5: Staging micro-batch 1 while streaming process is dead...
+[+] Staged micro-batch 1 at infra\checkpoints\test_process_recovery_input\batch_1.json
+
+[*] Step 6: Spawning Child OS Process 2: Restarting query from EXACT SAME checkpoint...
+[+] Child Process 2 active with PID=32908
+[+] Child Process 2 completed cleanly with exit code 0
+
+[*] Step 7: Performing rigorous data audit on post-recovery Parquet store...
+[+] Total Rows Persisted in Sink: 10
+[+] Distinct (zone_id, window_start) Keys: 10 (Expected: 10)
+[+] Duplicate Key Count: 0
+    Delivery Semantics Analysis: Because the hard kill occurred after commits/0 was written,
+    the recovery process correctly resumed at Batch 1, yielding exactly 10 rows and 0 duplicates.
+    If killed prior to commits/0, at-least-once re-execution would write duplicate part-files
+    which are safely deduplicated downstream by (zone_id, window_start).
+[+] Missing Expected Keys Count: 0
+[+] Invalid / Out-of-Bounds Predictions: 0
+
+[+] Sample of Recovered Predictions Table:
++-------------------+-------+--------------+--------------------+--------------------+
+|window_start       |zone_id|avg_speed_kmph|predicted_speed_kmph|prediction_model    |
++-------------------+-------+--------------+--------------------+--------------------+
+|2012-03-01 07:00:00|zone_1 |95.5          |96.8                |LinearRegression_OLS|
+|2012-03-01 07:00:00|zone_2 |88.2          |91.66               |LinearRegression_OLS|
+|2012-03-01 07:00:00|zone_3 |102.1         |101.02              |LinearRegression_OLS|
+|2012-03-01 07:00:00|zone_4 |75.8          |83.04               |LinearRegression_OLS|
+|2012-03-01 07:00:00|zone_5 |108.4         |104.81              |LinearRegression_OLS|
+|2012-03-01 07:05:00|zone_1 |93.2          |95.28               |LinearRegression_OLS|
+|2012-03-01 07:05:00|zone_2 |86.4          |90.66               |LinearRegression_OLS|
+|2012-03-01 07:05:00|zone_3 |101.5         |100.66              |LinearRegression_OLS|
+|2012-03-01 07:05:00|zone_4 |73.1          |81.43               |LinearRegression_OLS|
+|2012-03-01 07:05:00|zone_5 |106.8         |103.86              |LinearRegression_OLS|
++-------------------+-------+--------------+--------------------+--------------------+
+
+==============================================================================
+[+] GENUINE PROCESS-LEVEL CRASH & CHECKPOINT RECOVERY: ALL CHECKS PASSED!
+==============================================================================
+                                                                                
+2026-10-24 23:24:59,873 [INFO] [Urbanix-ProcessRecovery] Closing down clientserver connection
+SUCCESS: The process with PID 29088 (child process of PID 28576) has been terminated.
+SUCCESS: The process with PID 28576 (child process of PID 1816) has been terminated.
+SUCCESS: The process with PID 1816 (child process of PID 27616) has been terminated.

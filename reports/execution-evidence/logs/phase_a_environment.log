@@ -1,0 +1,17 @@
+﻿=== URBANIX PHASE A: ENVIRONMENT & RUNTIMES AUDIT ===
+Timestamp: 2026-10-24 23:18:46 +05:30
+Host OS: Microsoft Windows 11 Home Single Language Build 26300
+PowerShell Version: 5.1.26100.9711
+Git Branch: main, Commit: 9b0ecd4
+java : java version "1.8.0_501"
+At line:8 char:1
++ java -version 2>&1 | Out-File -FilePath $envLog -Append -Encoding utf ...
++ ~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (java version "1.8.0_501":String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+Java(TM) SE Runtime Environment (build 1.8.0_501-b08)
+Java HotSpot(TM) 64-Bit Server VM (build 25.501-b08, mixed mode)
+Streaming Python: 3.10.11, PySpark: 3.5.1
+Producers Python: 3.10.11, Kafka-Python: 2.2.3
+Dashboard Python: 3.10.11, FastAPI: 0.160.0, Uvicorn: 0.54.0
